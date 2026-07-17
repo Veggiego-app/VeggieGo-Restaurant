@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "472084397101",
+    "project_id": "veggie-go-98215",
+    "storage_bucket": "veggie-go-98215.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:472084397101:android:782a3b24a577fdbe7b0ca4",
+        "android_client_info": {
+          "package_name": "com.veggiego.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZxLPwh3xhYkpL1y7rk4iCGrz1Rxf6H2k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:472084397101:android:1571b4cc64f6262a7b0ca4",
+        "android_client_info": {
+          "package_name": "com.veggiego.restaurant"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZxLPwh3xhYkpL1y7rk4iCGrz1Rxf6H2k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:472084397101:android:9a8c9bf31a0c0af77b0ca4",
+        "android_client_info": {
+          "package_name": "com.veggiego.rider"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZxLPwh3xhYkpL1y7rk4iCGrz1Rxf6H2k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
