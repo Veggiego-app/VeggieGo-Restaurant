@@ -170,6 +170,7 @@ fun HomeScreen(
 
         ElevatedCard(
             modifier = Modifier.fillMaxWidth(),
+
             colors = CardDefaults.elevatedCardColors(
                 containerColor =
                     if (restaurantOnline)
@@ -178,15 +179,18 @@ fun HomeScreen(
                         Color(0xFFFFEBEE)
             )
         ) {
+
             Column(
                 modifier = Modifier.padding(16.dp)
             ) {
 
                 Text(
-                    text = if (restaurantOnline)
-                        "🟢 Restaurant Open"
-                    else
-                        "🔴 Restaurant Closed",
+                    text =
+                        if (restaurantOnline)
+                            "🟢 Restaurant Online"
+                        else
+                            "🔴 Restaurant Offline",
+
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp
                 )
@@ -198,10 +202,47 @@ fun HomeScreen(
                 Text(
                     text =
                         if (restaurantOnline)
-                            "Accepting Orders"
+                            "Currently accepting new orders"
                         else
-                            "Currently Not Accepting Orders"
+                            "New orders are currently stopped"
                 )
+
+                Spacer(
+                    modifier = Modifier.height(12.dp)
+                )
+
+                Button(
+                    onClick = {
+
+                        RestaurantRepository()
+                            .restaurantDocument()
+                            .update(
+                                "online",
+                                !restaurantOnline
+                            )
+                    },
+
+                    modifier = Modifier.fillMaxWidth(),
+
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor =
+                            if (restaurantOnline)
+                                Color(0xFFE53935)
+                            else
+                                Color(0xFF22C55E)
+                    )
+                ) {
+
+                    Text(
+                        text =
+                            if (restaurantOnline)
+                                "GO OFFLINE"
+                            else
+                                "GO ONLINE",
+
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
         Spacer(

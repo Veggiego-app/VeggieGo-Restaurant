@@ -10,8 +10,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import android.content.Intent
-import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun OrderDetailsScreen(
@@ -39,12 +37,12 @@ fun OrderDetailsScreen(
     timestamp: Long = 0L
 
 ) {
-    val context = LocalContext.current
 
     Column(
 
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .verticalScroll(
                 rememberScrollState()
             )
@@ -371,60 +369,6 @@ fun OrderDetailsScreen(
                         FontWeight.Bold
                 )
             }
-        }
-        Spacer(
-            modifier =
-                Modifier.height(16.dp)
-        )
-
-        Button(
-
-            onClick = {
-
-                val shareText =
-
-                    """
-VEGGIE GO
-
-Order ID : $orderId
-
-Customer : $customerName
-
-Address : $area, $city
-
-Total : ₹${itemTotal - discount}
-            """.trimIndent()
-
-                val intent =
-                    Intent(
-                        Intent.ACTION_SEND
-                    )
-
-                intent.type =
-                    "text/plain"
-
-                intent.putExtra(
-                    Intent.EXTRA_TEXT,
-                    shareText
-                )
-
-                context.startActivity(
-
-                    Intent.createChooser(
-                        intent,
-                        "Share KOT"
-                    )
-                )
-            },
-
-            modifier =
-                Modifier.fillMaxWidth()
-
-        ) {
-
-            Text(
-                "📤 SHARE ON WHATSAPP"
-            )
         }
     }
 }

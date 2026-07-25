@@ -7,58 +7,47 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
 
 data class SalesStats(
-
     val sales: Int = 0,
-
     val orders: Int = 0
-
 )
+
 @Composable
 fun SalesSummaryScreen(
-
     onBack: () -> Unit
-
 ) {
 
     var selectedScreen by remember {
         mutableStateOf("")
     }
-    var todayStats by remember {
 
-        mutableStateOf(
-            SalesStats()
-        )
+    var todayStats by remember {
+        mutableStateOf(SalesStats())
     }
 
     var weekStats by remember {
-
-        mutableStateOf(
-            SalesStats()
-        )
+        mutableStateOf(SalesStats())
     }
 
     var monthStats by remember {
-
-        mutableStateOf(
-            SalesStats()
-        )
+        mutableStateOf(SalesStats())
     }
 
     if (selectedScreen.isNotEmpty()) {
 
         SalesOrdersScreen(
-
             title = selectedScreen,
-
             onBack = {
                 selectedScreen = ""
             }
@@ -70,19 +59,80 @@ fun SalesSummaryScreen(
     BackHandler {
         onBack()
     }
+
     LaunchedEffect(Unit) {
 
         FirebaseFirestore
             .getInstance()
             .collection("orders")
-
             .addSnapshotListener { snapshot, _ ->
 
-                if (snapshot == null)
+                if (snapshot == null) {
                     return@addSnapshotListener
+                }
 
-                val now =
-                    System.currentTimeMillis()
+                val zoneId =
+                    ZoneId.systemDefault()
+
+                val today =
+                    LocalDate.now(zoneId)
+
+                // आज सुबह 12:00 बजे
+                val todayStart =
+                    today
+                        .atStartOfDay(zoneId)
+                        .toInstant()
+                        .toEpochMilli()
+
+                // कल सुबह 12:00 बजे
+                val tomorrowStart =
+                    today
+                        .plusDays(1)
+                        .atStartOfDay(zoneId)
+                        .toInstant()
+                        .toEpochMilli()
+
+                // इस सप्ताह का सोमवार
+                val weekStartDate =
+                    today.with(
+                        TemporalAdjusters.previousOrSame(
+                            DayOfWeek.MONDAY
+                        )
+                    )
+
+                // सोमवार सुबह 12:00 बजे
+                val weekStart =
+                    weekStartDate
+                        .atStartOfDay(zoneId)
+                        .toInstant()
+                        .toEpochMilli()
+
+                // अगले सोमवार सुबह 12:00 बजे
+                val nextWeekStart =
+                    weekStartDate
+                        .plusWeeks(1)
+                        .atStartOfDay(zoneId)
+                        .toInstant()
+                        .toEpochMilli()
+
+                // इस महीने की पहली तारीख
+                val monthStartDate =
+                    today.withDayOfMonth(1)
+
+                // महीने की पहली तारीख सुबह 12:00 बजे
+                val monthStart =
+                    monthStartDate
+                        .atStartOfDay(zoneId)
+                        .toInstant()
+                        .toEpochMilli()
+
+                // अगले महीने की पहली तारीख सुबह 12:00 बजे
+                val nextMonthStart =
+                    monthStartDate
+                        .plusMonths(1)
+                        .atStartOfDay(zoneId)
+                        .toInstant()
+                        .toEpochMilli()
 
                 var todaySales = 0
                 var todayOrders = 0
@@ -95,20 +145,36 @@ fun SalesSummaryScreen(
 
                 snapshot.documents.forEach { doc ->
 
+                    val orderRestaurantId =
+                        doc.getString("restaurantId")
+                            ?: ""
+
+                    // केवल login किए हुए restaurant के orders
+                    if (
+                        orderRestaurantId !=
+                        RestaurantSession.restaurantId
+                    ) {
+                        return@forEach
+                    }
+
                     val status =
                         doc.getString("status")
                             ?: ""
 
-                    if (status != "DELIVERED")
+                    // केवल delivered orders
+                    if (status != "DELIVERED") {
                         return@forEach
+                    }
 
                     val itemTotal =
                         doc.getLong("itemTotal")
-                            ?.toInt() ?: 0
+                            ?.toInt()
+                            ?: 0
 
                     val discount =
                         doc.getLong("discount")
-                            ?.toInt() ?: 0
+                            ?.toInt()
+                            ?: 0
 
                     val timestamp =
                         doc.getLong("timestamp")
@@ -117,32 +183,29 @@ fun SalesSummaryScreen(
                     val sale =
                         itemTotal - discount
 
-                    val diff =
-                        now - timestamp
-
+                    // Today: आज 12 AM से कल 12 AM तक
                     if (
-                        diff <=
-                        24L * 60L * 60L * 1000L
+                        timestamp >= todayStart &&
+                        timestamp < tomorrowStart
                     ) {
-
                         todaySales += sale
                         todayOrders++
                     }
 
+                    // This Week: सोमवार से रविवार तक
                     if (
-                        diff <=
-                        7L * 24L * 60L * 60L * 1000L
+                        timestamp >= weekStart &&
+                        timestamp < nextWeekStart
                     ) {
-
                         weekSales += sale
                         weekOrders++
                     }
 
+                    // This Month: पहली तारीख से महीने के अंत तक
                     if (
-                        diff <=
-                        30L * 24L * 60L * 60L * 1000L
+                        timestamp >= monthStart &&
+                        timestamp < nextMonthStart
                     ) {
-
                         monthSales += sale
                         monthOrders++
                     }
@@ -150,33 +213,32 @@ fun SalesSummaryScreen(
 
                 todayStats =
                     SalesStats(
-                        todaySales,
-                        todayOrders
+                        sales = todaySales,
+                        orders = todayOrders
                     )
 
                 weekStats =
                     SalesStats(
-                        weekSales,
-                        weekOrders
+                        sales = weekSales,
+                        orders = weekOrders
                     )
 
                 monthStats =
                     SalesStats(
-                        monthSales,
-                        monthOrders
+                        sales = monthSales,
+                        orders = monthOrders
                     )
             }
     }
 
     Column(
-
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .verticalScroll(
                 rememberScrollState()
             )
             .padding(16.dp)
-
     ) {
 
         Row(
@@ -184,15 +246,12 @@ fun SalesSummaryScreen(
         ) {
 
             IconButton(
-                onClick = {
-                    onBack()
-                }
+                onClick = onBack
             ) {
 
                 Icon(
-                    imageVector =
-                        Icons.Default.ArrowBack,
-                    contentDescription = null
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "Back"
                 )
             }
 
@@ -212,14 +271,10 @@ fun SalesSummaryScreen(
         )
 
         SalesCard(
-
             title = "Today",
-
             sales = "₹${todayStats.sales}",
-
             orders = "${todayStats.orders} Orders",
             onClick = {
-
                 selectedScreen = "Today's Orders"
             }
         )
@@ -231,10 +286,8 @@ fun SalesSummaryScreen(
         SalesCard(
             title = "This Week",
             sales = "₹${weekStats.sales}",
-
             orders = "${weekStats.orders} Orders",
             onClick = {
-
                 selectedScreen = "This Week Orders"
             }
         )
@@ -246,10 +299,8 @@ fun SalesSummaryScreen(
         SalesCard(
             title = "This Month",
             sales = "₹${monthStats.sales}",
-
             orders = "${monthStats.orders} Orders",
             onClick = {
-
                 selectedScreen = "This Month Orders"
             }
         )
@@ -259,66 +310,25 @@ fun SalesSummaryScreen(
         )
 
         SalesCard(
-
             title = "Custom Range",
-
             sales = "Coming Soon",
-
             orders = "",
-
             onClick = {}
-
         )
-
-        Spacer(
-            modifier = Modifier.height(20.dp)
-        )
-
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-
-                Text(
-                    text = "Last Updated",
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(
-                    modifier = Modifier.height(4.dp)
-                )
-
-                Text(
-                    text =
-                        "01 Jun 2026 05:15 PM"
-                )
-            }
-        }
     }
 }
 
 @Composable
 fun SalesCard(
-
     title: String,
-
     sales: String,
-
     orders: String,
-
     onClick: () -> Unit = {}
-
 ) {
 
     Card(
-
         modifier = Modifier.fillMaxWidth(),
-
         onClick = onClick
-
     ) {
 
         Column(

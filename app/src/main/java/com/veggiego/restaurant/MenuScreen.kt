@@ -536,6 +536,7 @@ fun MenuScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .background(Color(0xFFFFCC80))
     ) {
 
