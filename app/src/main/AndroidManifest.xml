@@ -29,13 +29,14 @@
         android:theme="@style/Theme.VeggieGoRestaurant">
 
 
-<!--        <activity-->
-<!--            android:name=".NewOrderPopupActivity"-->
-<!--            android:exported="false"-->
-<!--            android:showWhenLocked="true"-->
-<!--            android:turnScreenOn="true"-->
-<!--            android:excludeFromRecents="true"-->
-<!--            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />-->
+        <activity
+            android:name=".NewOrderPopupActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.VeggieGoRestaurant" />
 
         <activity
             android:name=".MainActivity"

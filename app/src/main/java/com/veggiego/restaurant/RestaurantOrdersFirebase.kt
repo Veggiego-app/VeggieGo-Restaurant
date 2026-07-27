@@ -40,6 +40,12 @@ data class RestaurantOrder(
 
     val restaurantName: String = "",
 
+    val riderId: String = "",
+
+    val riderName: String = "",
+
+    val riderPhone: String = "",
+
     val discount: Int = 0,
 
     val packagingFee: Int = 0,
@@ -132,6 +138,21 @@ fun RestaurantOrdersFirebase(
                                 restaurantName =
                                     it.getString(
                                         "restaurantName"
+                                    ) ?: "",
+
+                                riderId =
+                                    it.getString(
+                                        "riderId"
+                                    ) ?: "",
+
+                                riderName =
+                                    it.getString(
+                                        "riderName"
+                                    ) ?: "",
+
+                                riderPhone =
+                                    it.getString(
+                                        "riderPhone"
                                     ) ?: "",
 
                                 discount =
@@ -306,6 +327,89 @@ fun RestaurantOrdersFirebase(
                         text =
                             "📌 ${order.status}"
                     )
+
+                    /*
+                     * Rider assign होने के बाद ही
+                     * Rider information दिखाई जाएगी.
+                     */
+                    if (
+                        order.status != "DELIVERED" &&
+                        (
+                                order.riderId.isNotBlank() ||
+                                        order.riderName.isNotBlank() ||
+                                        order.riderPhone.isNotBlank()
+                                )
+                    ) {
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(10.dp)
+                        )
+
+                        Card(
+
+                            modifier =
+                                Modifier.fillMaxWidth(),
+
+                            colors =
+                                CardDefaults.cardColors(
+                                    containerColor =
+                                        Color(0xFFE3F2FD)
+                                )
+
+                        ) {
+
+                            Column(
+                                modifier =
+                                    Modifier.padding(12.dp)
+                            ) {
+
+                                Text(
+                                    text =
+                                        "🛵 Assigned Rider",
+                                    fontWeight =
+                                        FontWeight.Bold,
+                                    color =
+                                        Color(0xFF1565C0)
+                                )
+
+                                Spacer(
+                                    modifier =
+                                        Modifier.height(5.dp)
+                                )
+
+                                Text(
+                                    text =
+                                        if (
+                                            order.riderName
+                                                .isNotBlank()
+                                        ) {
+                                            order.riderName
+                                        } else {
+                                            "Rider"
+                                        },
+                                    fontWeight =
+                                        FontWeight.SemiBold
+                                )
+
+                                if (
+                                    order.riderPhone
+                                        .isNotBlank()
+                                ) {
+
+                                    Spacer(
+                                        modifier =
+                                            Modifier.height(2.dp)
+                                    )
+
+                                    Text(
+                                        text =
+                                            "📞 ${order.riderPhone}"
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     Spacer(
                         modifier =

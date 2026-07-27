@@ -120,6 +120,9 @@ fun LoginScreen(
 
                         return@Button
                     }
+                    otpSent = true
+                    otp = ""
+                    verificationId = ""
 
                     val options =
 
@@ -154,9 +157,14 @@ fun LoginScreen(
                                         e: FirebaseException
                                     ) {
 
+                                        otpSent = false
+                                        otp = ""
+                                        verificationId = ""
+                                        resendTime = 0
+
                                         Toast.makeText(
                                             context,
-                                            e.message,
+                                            e.message ?: "OTP send failed",
                                             Toast.LENGTH_LONG
                                         ).show()
                                     }
@@ -203,6 +211,23 @@ fun LoginScreen(
 
         } else {
 
+            Text(
+                text = "We've sent a 6-digit OTP to",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Spacer(
+                modifier = Modifier.height(4.dp)
+            )
+
+            Text(
+                text = "+91 $phone",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(
+                modifier = Modifier.height(16.dp)
+            )
             OutlinedTextField(
 
                 value = otp,
@@ -265,15 +290,18 @@ fun LoginScreen(
                             )
                         }
 
-                        .addOnFailureListener {
+                        .addOnFailureListener { error ->
 
                             Toast.makeText(
                                 context,
-                                "Invalid OTP",
-                                Toast.LENGTH_SHORT
+                                error.message
+                                    ?: "OTP verification failed",
+                                Toast.LENGTH_LONG
                             ).show()
                         }
                 },
+
+                enabled = verificationId.isNotEmpty(),
 
                 modifier =
                     Modifier.fillMaxWidth()
@@ -281,7 +309,10 @@ fun LoginScreen(
             ) {
 
                 Text(
-                    "VERIFY OTP"
+                    if (verificationId.isEmpty())
+                        "SENDING OTP..."
+                    else
+                        "VERIFY OTP"
                 )
             }
             Spacer(
@@ -346,9 +377,13 @@ fun LoginScreen(
                                         e: FirebaseException
                                     ) {
 
+                                        otp = ""
+                                        verificationId = ""
+                                        resendTime = 0
+
                                         Toast.makeText(
                                             context,
-                                            e.message,
+                                            e.message ?: "OTP resend failed",
                                             Toast.LENGTH_LONG
                                         ).show()
                                     }

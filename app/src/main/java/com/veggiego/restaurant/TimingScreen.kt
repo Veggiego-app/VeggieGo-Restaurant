@@ -30,8 +30,6 @@ fun TimingScreen(onBack: () -> Unit) {
         db.collection("restaurants").document(RestaurantSession.restaurantId)
     }
 
-    var temporaryClosed by remember { mutableStateOf(false) }
-    var closeReason by remember { mutableStateOf("") }
     var customDays by remember {
         mutableStateOf(weekDays.map { DayTimingModel(it) })
     }
@@ -43,8 +41,6 @@ fun TimingScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         restaurantRef.get()
             .addOnSuccessListener { document ->
-                temporaryClosed = document.getBoolean("temporaryClosed") ?: false
-                closeReason = document.getString("closeReason") ?: ""
 
                 @Suppress("UNCHECKED_CAST")
                 val weeklySlots =
@@ -140,21 +136,10 @@ fun TimingScreen(onBack: () -> Unit) {
             } else if (!isEditing) {
                 item {
                     WeeklyTimingView(
-                        days = customDays,
-                        temporaryClosed = temporaryClosed,
-                        closeReason = closeReason
+                        days = customDays
                     )
                 }
             } else {
-                item {
-                    TemporaryCloseEditor(
-                        temporaryClosed = temporaryClosed,
-                        closeReason = closeReason,
-                        onTemporaryClosedChange = { temporaryClosed = it },
-                        onReasonChange = { closeReason = it }
-                    )
-                    Spacer(Modifier.height(16.dp))
-                }
 
                 customDays.forEachIndexed { dayIndex, day ->
                     item(key = day.day) {
@@ -209,13 +194,7 @@ fun TimingScreen(onBack: () -> Unit) {
 
                             restaurantRef.update(
                                 mapOf(
-                                    "temporaryClosed" to temporaryClosed,
-                                    "closeReason" to closeReason.trim(),
-                                    "weeklySlots" to weeklySlots,
-                                    "liveStatus" to if (temporaryClosed)
-                                        "TEMPORARILY_CLOSED" else "OPEN",
-                                    "openingText" to if (temporaryClosed)
-                                        "Temporarily Closed" else ""
+                                    "weeklySlots" to weeklySlots
                                 )
                             ).addOnSuccessListener {
                                 isSaving = false
@@ -283,15 +262,27 @@ private fun TimingHeader(
 
 @Composable
 private fun WeeklyTimingView(
-    days: List<DayTimingModel>,
-    temporaryClosed: Boolean,
-    closeReason: String
+    days: List<DayTimingModel>
 ) {
-    val today = remember {
-        SimpleDateFormat("EEEE", Locale.ENGLISH).format(Calendar.getInstance().time)
-    }
-    val todayTiming = days.firstOrNull { it.day == today }
-    val liveText = currentStatusText(todayTiming, temporaryClosed)
+    val today =
+        remember {
+            SimpleDateFormat(
+                "EEEE",
+                Locale.ENGLISH
+            ).format(
+                Calendar.getInstance().time
+            )
+        }
+
+    val todayTiming =
+        days.firstOrNull {
+            it.day == today
+        }
+
+    val liveText =
+        currentStatusText(
+            todayTiming
+        )
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -302,14 +293,6 @@ private fun WeeklyTimingView(
                     Color(0xFF168743) else MaterialTheme.colorScheme.error,
                 fontWeight = FontWeight.Bold
             )
-
-            if (temporaryClosed && closeReason.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = closeReason,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
 
             Spacer(Modifier.height(14.dp))
             HorizontalDivider()
@@ -352,46 +335,6 @@ private fun WeeklyTimingView(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TemporaryCloseEditor(
-    temporaryClosed: Boolean,
-    closeReason: String,
-    onTemporaryClosedChange: (Boolean) -> Unit,
-    onReasonChange: (String) -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Temporarily Closed", fontWeight = FontWeight.Bold)
-                    Text(
-                        "Restaurant ko kuchh samay ke liye band rakhein",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Switch(
-                    checked = temporaryClosed,
-                    onCheckedChange = onTemporaryClosedChange
-                )
-            }
-            if (temporaryClosed) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = closeReason,
-                    onValueChange = onReasonChange,
-                    label = { Text("Close reason") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
             }
         }
     }
@@ -476,11 +419,15 @@ private fun displayTime(slot: TimingSlotModel, isOpen: Boolean): String {
 }
 
 private fun currentStatusText(
-    today: DayTimingModel?,
-    temporaryClosed: Boolean
+    today: DayTimingModel?
 ): String {
-    if (temporaryClosed) return "Temporarily Closed"
-    if (today == null || today.slots.isEmpty()) return "Closed today"
+
+    if (
+        today == null ||
+        today.slots.isEmpty()
+    ) {
+        return "Closed today"
+    }
 
     val now = Calendar.getInstance()
     val nowMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)

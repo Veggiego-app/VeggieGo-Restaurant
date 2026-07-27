@@ -112,9 +112,11 @@ fun HomeScreen(
                         "PREPARING" ->
                             preparing++
 
-                        "READY_FOR_PICKUP" ->
+                        "READY_FOR_PICKUP",
+                        "RIDER_ASSIGNED" ->
                             ready++
 
+                        "PICKED_UP",
                         "OUT_FOR_DELIVERY" ->
                             onTheWay++
 
