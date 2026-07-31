@@ -1,463 +1,185 @@
 package com.veggiego.restaurant
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.firebase.firestore.FirebaseFirestore
-import androidx.compose.foundation.background
+import java.time.LocalDate
+import java.time.ZoneId
 
 @Composable
 fun HomeScreen(
-
     modifier: Modifier = Modifier,
-
+    onTodayOrdersClick: () -> Unit,
+    onTodaySalesClick: () -> Unit,
+    onAllOrdersClick: () -> Unit,
     onNewOrdersClick: () -> Unit,
-
     onPreparingClick: () -> Unit,
-
     onReadyClick: () -> Unit,
-
     onOnTheWayClick: () -> Unit,
-
     onDeliveredClick: () -> Unit,
-
-    onSalesClick: () -> Unit
+    onCancelledClick: () -> Unit,
+    onPayoutReportClick: () -> Unit
 ) {
+    var restaurantName by remember { mutableStateOf("Restaurant") }
+    var restaurantOnline by remember { mutableStateOf(true) }
+    var todayOrders by remember { mutableIntStateOf(0) }
+    var todaySales by remember { mutableDoubleStateOf(0.0) }
+    var counts by remember { mutableStateOf(emptyMap<String, Int>()) }
 
-    val db = FirebaseFirestore.getInstance()
-
-    var newOrdersCount by remember {
-        mutableIntStateOf(0)
-    }
-
-    var preparingCount by remember {
-        mutableIntStateOf(0)
-    }
-
-    var readyCount by remember {
-        mutableIntStateOf(0)
-    }
-
-    var onTheWayCount by remember {
-        mutableIntStateOf(0)
-    }
-
-    var deliveredCount by remember {
-        mutableIntStateOf(0)
-    }
-
-    var totalSales by remember {
-        mutableIntStateOf(0)
-    }
-    var restaurantName by remember {
-        mutableStateOf("Restaurant")
-    }
-
-    var restaurantOnline by remember {
-        mutableStateOf(true)
-    }
-
-    LaunchedEffect(Unit) {
-
-        RestaurantRepository()
-
-            .restaurantOrders()
+    DisposableEffect(Unit) {
+        val ordersListener = RestaurantRepository().restaurantOrders()
             .addSnapshotListener { value, _ ->
-
                 if (value == null) return@addSnapshotListener
-
-                var newOrders = 0
-                var preparing = 0
-                var ready = 0
-                var onTheWay = 0
-                var delivered = 0
-                var sales = 0
-
+                val zone = ZoneId.systemDefault()
+                val today = LocalDate.now(zone)
+                val start = today.atStartOfDay(zone).toInstant().toEpochMilli()
+                val end = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+                var todayCount = 0
+                var sales = 0.0
+                val mutableCounts = mutableMapOf(
+                    "ALL" to 0, "NEW" to 0, "PREPARING" to 0, "READY" to 0,
+                    "ON_THE_WAY" to 0, "COMPLETED" to 0, "CANCELLED" to 0
+                )
                 value.documents.forEach { doc ->
-                    val restaurantId =
-                        RestaurantSession.restaurantId
-
-                    if (
-                        doc.getString("restaurantId")
-                        != restaurantId
-                    ) {
-                        return@forEach
-                    }
-
-                    val status =
-                        doc.getString("status") ?: ""
-
-                    val total = when (val amount = doc.get("total")) {
-
-                        is Long -> amount.toInt()
-
-                        is Double -> amount.toInt()
-
-                        else -> 0
-                    }
-
+                    if (doc.getString("restaurantId") != RestaurantSession.restaurantId) return@forEach
+                    val status = doc.getString("status").orEmpty()
+                    val timestamp = (doc.get("timestamp") as? Number)?.toLong() ?: 0L
+                    mutableCounts["ALL"] = (mutableCounts["ALL"] ?: 0) + 1
                     when (status) {
-
-                        "APPROVED" ->
-                            newOrders++
-
-                        "ACCEPTED",
-                        "PREPARING" ->
-                            preparing++
-
-                        "READY_FOR_PICKUP",
-                        "RIDER_ASSIGNED" ->
-                            ready++
-
-                        "PICKED_UP",
-                        "OUT_FOR_DELIVERY" ->
-                            onTheWay++
-
-                        "DELIVERED" -> {
-
-                            delivered++
-                            sales += total
+                        "APPROVED", "NEW", "PENDING", "RESTAURANT_PENDING" -> mutableCounts["NEW"] = (mutableCounts["NEW"] ?: 0) + 1
+                        "ACCEPTED", "PREPARING" -> mutableCounts["PREPARING"] = (mutableCounts["PREPARING"] ?: 0) + 1
+                        "READY_FOR_PICKUP", "RIDER_ASSIGNED" -> mutableCounts["READY"] = (mutableCounts["READY"] ?: 0) + 1
+                        "PICKED_UP", "OUT_FOR_DELIVERY" -> mutableCounts["ON_THE_WAY"] = (mutableCounts["ON_THE_WAY"] ?: 0) + 1
+                        "DELIVERED" -> mutableCounts["COMPLETED"] = (mutableCounts["COMPLETED"] ?: 0) + 1
+                        "CANCELLED", "REJECTED" -> mutableCounts["CANCELLED"] = (mutableCounts["CANCELLED"] ?: 0) + 1
+                    }
+                    if (timestamp in start until end) {
+                        todayCount++
+                        if (status == "DELIVERED") {
+                            sales += readDouble(doc.data, "restaurantPayout", "restaurantAmount", "payout").takeIf { it > 0 }
+                                ?: ((doc.get("itemTotal") as? Number)?.toDouble() ?: 0.0)
                         }
                     }
                 }
-
-                newOrdersCount = newOrders
-                preparingCount = preparing
-                readyCount = ready
-                onTheWayCount = onTheWay
-                deliveredCount = delivered
-                totalSales = sales
+                todayOrders = todayCount
+                todaySales = sales
+                counts = mutableCounts
             }
-    }
-    RestaurantRepository()
-
-        .restaurantDocument()
-
-        .addSnapshotListener { snapshot, _ ->
-
-            if (snapshot == null) return@addSnapshotListener
-
-            restaurantName =
-                snapshot.getString("name")
-                    ?: "Restaurant"
-
-            restaurantOnline =
-                snapshot.getBoolean("online")
-                    ?: true
+        val restaurantListener = RestaurantRepository().restaurantDocument()
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) {
+                    restaurantName = snapshot.getString("name") ?: "Restaurant"
+                    restaurantOnline = snapshot.getBoolean("online") ?: true
+                }
+            }
+        onDispose {
+            ordersListener.remove()
+            restaurantListener.remove()
         }
+    }
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color(0xFFFFCC80))
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+        modifier = modifier.fillMaxSize().background(Color(0xFFFFF7ED))
+            .verticalScroll(rememberScrollState()).padding(16.dp)
     ) {
-
         Text(
             text = restaurantName,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = 27.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF5D4037)
         )
-        Spacer(
-            modifier = Modifier.height(8.dp)
-        )
-
+        Spacer(Modifier.height(10.dp))
         ElevatedCard(
             modifier = Modifier.fillMaxWidth(),
-
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp),
             colors = CardDefaults.elevatedCardColors(
-                containerColor =
-                    if (restaurantOnline)
-                        Color(0xFFE8F5E9)
-                    else
-                        Color(0xFFFFEBEE)
+                containerColor = if (restaurantOnline) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
             )
         ) {
-
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-
-                Text(
-                    text =
-                        if (restaurantOnline)
-                            "🟢 Restaurant Online"
-                        else
-                            "🔴 Restaurant Offline",
-
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
-
-                Spacer(
-                    modifier = Modifier.height(4.dp)
-                )
-
-                Text(
-                    text =
-                        if (restaurantOnline)
-                            "Currently accepting new orders"
-                        else
-                            "New orders are currently stopped"
-                )
-
-                Spacer(
-                    modifier = Modifier.height(12.dp)
-                )
-
+            Column(Modifier.padding(16.dp)) {
+                Text(if (restaurantOnline) "🟢 Restaurant Online" else "🔴 Restaurant Offline", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(if (restaurantOnline) "Currently accepting new orders" else "New orders are currently stopped")
+                Spacer(Modifier.height(10.dp))
                 Button(
-                    onClick = {
-
-                        RestaurantRepository()
-                            .restaurantDocument()
-                            .update(
-                                "online",
-                                !restaurantOnline
-                            )
-                    },
-
+                    onClick = { RestaurantRepository().restaurantDocument().update("online", !restaurantOnline) },
                     modifier = Modifier.fillMaxWidth(),
-
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor =
-                            if (restaurantOnline)
-                                Color(0xFFE53935)
-                            else
-                                Color(0xFF22C55E)
-                    )
-                ) {
-
-                    Text(
-                        text =
-                            if (restaurantOnline)
-                                "GO OFFLINE"
-                            else
-                                "GO ONLINE",
-
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                    colors = ButtonDefaults.buttonColors(containerColor = if (restaurantOnline) Color(0xFFE53935) else Color(0xFF22C55E))
+                ) { Text(if (restaurantOnline) "GO OFFLINE" else "GO ONLINE", fontWeight = FontWeight.Bold) }
             }
         }
-        Spacer(
-            modifier = Modifier.height(10.dp)
-        )
 
-        // ROW 1
-
-        Row(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-
-            DashboardCard(
-                title = "📦 New Orders",
-                value = newOrdersCount.toString(),
-                modifier = Modifier.weight(1f),
-                onClick = onNewOrdersClick
-            )
-
-            Spacer(
-                modifier = Modifier.width(12.dp)
-            )
-
-            DashboardCard(
-                title = "🍳 Preparing",
-                value = preparingCount.toString(),
-                modifier = Modifier.weight(1f),
-                onClick = onPreparingClick
-            )
+        SectionTitle("Today's Overview")
+        Row(Modifier.fillMaxWidth()) {
+            DashboardCard("📦 Today Orders", todayOrders.toString(), Modifier.weight(1f), onTodayOrdersClick)
+            Spacer(Modifier.width(12.dp))
+            DashboardCard("💰 Today Sales", "₹${todaySales.toInt()}", Modifier.weight(1f), onTodaySalesClick)
         }
 
-        Spacer(
-            modifier = Modifier.height(12.dp)
-        )
+        SectionTitle("Order Status")
+        DashboardCard("🧾 All Orders", (counts["ALL"] ?: 0).toString(), Modifier.fillMaxWidth(), onAllOrdersClick)
+        Spacer(Modifier.height(12.dp))
+        StatusRow("🆕 New Orders", counts["NEW"] ?: 0, onNewOrdersClick, "🍳 Preparing", counts["PREPARING"] ?: 0, onPreparingClick)
+        Spacer(Modifier.height(12.dp))
+        StatusRow("📦 Ready", counts["READY"] ?: 0, onReadyClick, "🚚 On The Way", counts["ON_THE_WAY"] ?: 0, onOnTheWayClick)
+        Spacer(Modifier.height(12.dp))
+        StatusRow("✅ Delivered", counts["COMPLETED"] ?: 0, onDeliveredClick, "❌ Cancelled", counts["CANCELLED"] ?: 0, onCancelledClick)
 
-        // ROW 2
-
-        Row(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-
-            DashboardCard(
-                title = "📦 Ready",
-                value = readyCount.toString(),
-                modifier = Modifier.weight(1f),
-                onClick = onReadyClick
-            )
-
-            Spacer(
-                modifier = Modifier.width(12.dp)
-            )
-
-            DashboardCard(
-                title = "🚚 On The Way",
-                value = onTheWayCount.toString(),
-                modifier = Modifier.weight(1f),
-                onClick = onOnTheWayClick
-            )
-        }
-
-        Spacer(
-            modifier = Modifier.height(12.dp)
-        )
-
-        // ROW 3
-
-        Row(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-
-            DashboardCard(
-                title = "✅ Delivered",
-                value = deliveredCount.toString(),
-                modifier = Modifier.weight(1f),
-                onClick = onDeliveredClick
-            )
-
-            Spacer(
-                modifier = Modifier.width(12.dp)
-            )
-
-            Card(
-                modifier = Modifier.weight(1f),
-
-                onClick = {
-                    onSalesClick()
-                }
-            ) {
-
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-
-                    Text(
-                        text = "Today's Sales",
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(8.dp)
-                    )
-
-                    Text(
-                        text = "₹$totalSales",
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(4.dp)
-                    )
-
-                    Text(
-                        text = "$deliveredCount Delivered Orders"
-                    )
-                }
-            }
-        }
-        Spacer(
-            modifier = Modifier.height(20.dp)
-        )
-
-        Card(
+        SectionTitle("Reports")
+        ElevatedCard(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = Color(0xFFFFF3E0)
+            onClick = onPayoutReportClick,
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = Color(0xFFE8F5E9)
             ),
-            onClick = {
-                // Combo Offer Screen
-            }
-        ) {
-
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-
-                Text(
-                    text = "🏷 Quick Action",
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(
-                    modifier = Modifier.height(8.dp)
-                )
-
-                Text(
-                    text = "Combo Offers"
-                )
-
-                Text(
-                    text = "Create restaurant combo deals"
-                )
-            }
-        }
-
-        Spacer(
-            modifier = Modifier.height(20.dp)
-        )
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = Color(0xFFF5F5F5)
+            elevation = CardDefaults.elevatedCardElevation(
+                defaultElevation = 6.dp
             )
         ) {
-
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-
+            Column(Modifier.padding(18.dp)) {
                 Text(
-                    text = "Today's Summary",
+                    text = "💰 Payout Report",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                    fontSize = 18.sp,
+                    color = Color(0xFF1B5E20)
                 )
-
-                Spacer(
-                    modifier = Modifier.height(10.dp)
-                )
-
-                SummaryRow(
-                    "New Orders",
-                    newOrdersCount.toString()
-                )
-
-                SummaryRow(
-                    "Preparing",
-                    preparingCount.toString()
-                )
-
-                SummaryRow(
-                    "Ready",
-                    readyCount.toString()
-                )
-
-                SummaryRow(
-                    "On The Way",
-                    onTheWayCount.toString()
-                )
-
-                SummaryRow(
-                    "Delivered",
-                    deliveredCount.toString()
-                )
-
-                Divider()
-
-                SummaryRow(
-                    "Today's Sales",
-                    "₹$totalSales"
-                )
+                Spacer(Modifier.height(4.dp))
+                Text("Today, current week, last week, month or custom 60-day range")
             }
         }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+private fun readDouble(data: Map<String, Any>?, vararg keys: String): Double {
+    keys.forEach { key -> (data?.get(key) as? Number)?.toDouble()?.let { return it } }
+    return 0.0
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Spacer(Modifier.height(20.dp))
+    Text(
+        text = text,
+        fontWeight = FontWeight.Bold,
+        fontSize = 19.sp,
+        color = Color(0xFF6D4C41)
+    )
+    Spacer(Modifier.height(10.dp))
+}
+
+@Composable private fun StatusRow(t1: String, v1: Int, c1: () -> Unit, t2: String, v2: Int, c2: () -> Unit) {
+    Row(Modifier.fillMaxWidth()) {
+        DashboardCard(t1, v1.toString(), Modifier.weight(1f), c1)
+        Spacer(Modifier.width(12.dp))
+        DashboardCard(t2, v2.toString(), Modifier.weight(1f), c2)
     }
 }
 
@@ -469,37 +191,42 @@ fun DashboardCard(
     onClick: () -> Unit = {}
 ) {
 
+    val backgroundColor =
+        when {
+            title.contains("Today Orders") -> Color(0xFFFFF3E0)
+            title.contains("Today Sales") -> Color(0xFFE8F5E9)
+            title.contains("All Orders") -> Color(0xFFE3F2FD)
+            title.contains("New Orders") -> Color(0xFFFFEBEE)
+            title.contains("Preparing") -> Color(0xFFFFF8E1)
+            title.contains("Ready") -> Color(0xFFE8F5E9)
+            title.contains("On The Way") -> Color(0xFFE3F2FD)
+            title.contains("Delivered") -> Color(0xFFF3E5F5)
+            title.contains("Cancelled") -> Color(0xFFFFEBEE)
+            else -> Color.White
+        }
+
+    val valueColor =
+        when {
+            title.contains("Today Orders") -> Color(0xFFE65100)
+            title.contains("Today Sales") -> Color(0xFF1B5E20)
+            title.contains("All Orders") -> Color(0xFF1565C0)
+            title.contains("New Orders") -> Color(0xFFC62828)
+            title.contains("Preparing") -> Color(0xFFF57F17)
+            title.contains("Ready") -> Color(0xFF2E7D32)
+            title.contains("On The Way") -> Color(0xFF1565C0)
+            title.contains("Delivered") -> Color(0xFF6A1B9A)
+            title.contains("Cancelled") -> Color(0xFFC62828)
+            else -> Color(0xFF424242)
+        }
+
     ElevatedCard(
         modifier = modifier,
         onClick = onClick,
         colors = CardDefaults.elevatedCardColors(
-            containerColor =
-                when {
-
-                    title.contains("New") ->
-                        Color(0xFFEDE7F6)
-
-                    title.contains("Preparing") ->
-                        Color(0xFFFFF3E0)
-
-                    title.contains("Ready") ->
-                        Color(0xFFE8F5E9)
-
-                    title.contains("Way") ->
-                        Color(0xFFE3F2FD)
-
-                    title.contains("Delivered") ->
-                        Color(0xFFF3E5F5)
-
-                    title.contains("Sales") ->
-                        Color(0xFFFFF8E1)
-
-                    else ->
-                        MaterialTheme.colorScheme.surface
-                }
+            containerColor = backgroundColor
         ),
         elevation = CardDefaults.elevatedCardElevation(
-            defaultElevation = 6.dp
+            defaultElevation = 5.dp
         )
     ) {
 
@@ -511,8 +238,9 @@ fun DashboardCard(
 
             Text(
                 text = title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF424242)
             )
 
             Spacer(
@@ -521,34 +249,10 @@ fun DashboardCard(
 
             Text(
                 text = value,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.ExtraBold
+                fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = valueColor
             )
         }
-    }
-}
-@Composable
-fun SummaryRow(
-    title: String,
-    value: String
-) {
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-
-        horizontalArrangement =
-            Arrangement.SpaceBetween
-    ) {
-
-        Text(
-            text = title
-        )
-
-        Text(
-            text = value,
-            fontWeight = FontWeight.Bold
-        )
     }
 }

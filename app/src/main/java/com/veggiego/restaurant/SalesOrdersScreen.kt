@@ -18,365 +18,110 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
+private data class ReportOrder(
+    val id: String,
+    val customerName: String,
+    val customerPhone: String,
+    val area: String,
+    val city: String,
+    val status: String,
+    val total: Int,
+    val itemTotal: Int,
+    val discount: Int,
+    val timestamp: Long,
+    val items: List<Map<String, Any>>
+)
+
 @Composable
-fun SalesOrdersScreen(
-    title: String,
-    onBack: () -> Unit
-) {
+fun SalesOrdersScreen(title: String, onBack: () -> Unit) {
+    var orders by remember { mutableStateOf(emptyList<ReportOrder>()) }
+    var selected by remember { mutableStateOf<ReportOrder?>(null) }
 
-    var orders by remember {
-        mutableStateOf<List<SalesOrder>>(emptyList())
-    }
+    BackHandler { if (selected != null) selected = null else onBack() }
 
-    var selectedOrder by remember {
-        mutableStateOf<SalesOrder?>(null)
-    }
-
-    BackHandler {
-
-        if (selectedOrder != null) {
-            selectedOrder = null
-        } else {
-            onBack()
+    DisposableEffect(title) {
+        val listener = FirebaseFirestore.getInstance().collection("orders").addSnapshotListener { snapshot, _ ->
+            if (snapshot == null) return@addSnapshotListener
+            val zone = ZoneId.systemDefault()
+            val today = LocalDate.now(zone)
+            val (start, end) = rangeForTitle(title, today, zone)
+            orders = snapshot.documents.mapNotNull { doc ->
+                if (doc.getString("restaurantId") != RestaurantSession.restaurantId) return@mapNotNull null
+                val status = doc.getString("status").orEmpty()
+                if (title != "Today's Orders" && status != "DELIVERED") return@mapNotNull null
+                val data = doc.data ?: return@mapNotNull null
+                val time = (data["timestamp"] as? Number)?.toLong() ?: 0L
+                if (time !in start until end) return@mapNotNull null
+                ReportOrder(
+                    id = doc.id,
+                    customerName = doc.getString("customerName").orEmpty(),
+                    customerPhone = doc.getString("customerPhone").orEmpty(),
+                    area = doc.getString("area").orEmpty(),
+                    city = doc.getString("city").orEmpty(),
+                    status = status,
+                    total = (data["total"] as? Number)?.toInt() ?: 0,
+                    itemTotal = (data["itemTotal"] as? Number)?.toInt() ?: 0,
+                    discount = (data["restaurantDiscount"] as? Number)?.toInt() ?: (data["discount"] as? Number)?.toInt() ?: 0,
+                    timestamp = time,
+                    items = data["items"] as? List<Map<String, Any>> ?: emptyList()
+                )
+            }.sortedByDescending { it.timestamp }
         }
+        onDispose { listener.remove() }
     }
 
-    LaunchedEffect(title) {
-
-        FirebaseFirestore
-            .getInstance()
-            .collection("orders")
-            .addSnapshotListener { snapshot, _ ->
-
-                if (snapshot == null) {
-                    return@addSnapshotListener
-                }
-
-                val zoneId =
-                    ZoneId.systemDefault()
-
-                val today =
-                    LocalDate.now(zoneId)
-
-                // आज सुबह 12 बजे
-                val todayStart =
-                    today
-                        .atStartOfDay(zoneId)
-                        .toInstant()
-                        .toEpochMilli()
-
-                // कल सुबह 12 बजे
-                val tomorrowStart =
-                    today
-                        .plusDays(1)
-                        .atStartOfDay(zoneId)
-                        .toInstant()
-                        .toEpochMilli()
-
-                // इस सप्ताह का सोमवार
-                val weekStartDate =
-                    today.with(
-                        TemporalAdjusters.previousOrSame(
-                            DayOfWeek.MONDAY
-                        )
-                    )
-
-                // सोमवार सुबह 12 बजे
-                val weekStart =
-                    weekStartDate
-                        .atStartOfDay(zoneId)
-                        .toInstant()
-                        .toEpochMilli()
-
-                // अगले सोमवार सुबह 12 बजे
-                val nextWeekStart =
-                    weekStartDate
-                        .plusWeeks(1)
-                        .atStartOfDay(zoneId)
-                        .toInstant()
-                        .toEpochMilli()
-
-                // इस महीने की पहली तारीख
-                val monthStartDate =
-                    today.withDayOfMonth(1)
-
-                // महीने की पहली तारीख सुबह 12 बजे
-                val monthStart =
-                    monthStartDate
-                        .atStartOfDay(zoneId)
-                        .toInstant()
-                        .toEpochMilli()
-
-                // अगले महीने की पहली तारीख सुबह 12 बजे
-                val nextMonthStart =
-                    monthStartDate
-                        .plusMonths(1)
-                        .atStartOfDay(zoneId)
-                        .toInstant()
-                        .toEpochMilli()
-
-                val filtered =
-                    snapshot.documents
-                        .mapNotNull { doc ->
-
-                            val orderRestaurantId =
-                                doc.getString("restaurantId")
-                                    ?: return@mapNotNull null
-
-                            // केवल login किए हुए restaurant के orders
-                            if (
-                                orderRestaurantId !=
-                                RestaurantSession.restaurantId
-                            ) {
-                                return@mapNotNull null
-                            }
-
-                            val status =
-                                doc.getString("status")
-                                    ?: return@mapNotNull null
-
-                            // केवल delivered orders
-                            if (status != "DELIVERED") {
-                                return@mapNotNull null
-                            }
-
-                            SalesOrder(
-                                id = doc.id,
-
-                                customerName =
-                                    doc.getString("customerName")
-                                        ?: "",
-
-                                customerPhone =
-                                    doc.getString("customerPhone")
-                                        ?: "",
-
-                                area =
-                                    doc.getString("area")
-                                        ?: "",
-
-                                house =
-                                    doc.getString("house")
-                                        ?: "",
-
-                                landmark =
-                                    doc.getString("landmark")
-                                        ?: "",
-
-                                city =
-                                    doc.getString("city")
-                                        ?: "",
-
-                                total =
-                                    doc.getLong("total")
-                                        ?.toInt()
-                                        ?: 0,
-
-                                itemTotal =
-                                    doc.getLong("itemTotal")
-                                        ?.toInt()
-                                        ?: 0,
-
-                                discount =
-                                    doc.getLong("discount")
-                                        ?.toInt()
-                                        ?: 0,
-
-                                status = status,
-
-                                timestamp =
-                                    doc.getLong("timestamp")
-                                        ?: 0L,
-
-                                items =
-                                    doc.get("items")
-                                            as? List<Map<String, Any>>
-                                        ?: emptyList(),
-
-                                updatedAt =
-                                    doc.getLong("updatedAt")
-                                        ?: 0L
-                            )
-                        }
-                        .filter { order ->
-
-                            when (title) {
-
-                                // आज सुबह 12 बजे से कल सुबह 12 बजे तक
-                                "Today's Orders" -> {
-                                    order.timestamp >= todayStart &&
-                                            order.timestamp < tomorrowStart
-                                }
-
-                                // सोमवार से रविवार तक
-                                "This Week Orders" -> {
-                                    order.timestamp >= weekStart &&
-                                            order.timestamp < nextWeekStart
-                                }
-
-                                // महीने की पहली से आखिरी तारीख तक
-                                "This Month Orders" -> {
-                                    order.timestamp >= monthStart &&
-                                            order.timestamp < nextMonthStart
-                                }
-
-                                else -> true
-                            }
-                        }
-
-                orders =
-                    filtered.sortedByDescending {
-                        it.timestamp
-                    }
-            }
-    }
-
-    if (selectedOrder != null) {
-
+    selected?.let { order ->
         OrderDetailsScreen(
-            onBack = {
-                selectedOrder = null
-            },
-
-            orderId =
-                selectedOrder!!.id,
-
-            customerName =
-                selectedOrder!!.customerName,
-
-            customerPhone =
-                selectedOrder!!.customerPhone,
-
-            area =
-                selectedOrder!!.area,
-
-            city =
-                selectedOrder!!.city,
-
-            total =
-                selectedOrder!!.total,
-
-            itemTotal =
-                selectedOrder!!.itemTotal,
-
-            discount =
-                selectedOrder!!.discount,
-
-            items =
-                selectedOrder!!.items,
-
-            timestamp =
-                selectedOrder!!.timestamp
+            onBack = { selected = null }, orderId = order.id, customerName = order.customerName,
+            customerPhone = order.customerPhone, area = order.area, city = order.city,
+            total = order.total, items = order.items, itemTotal = order.itemTotal,
+            discount = order.discount, timestamp = order.timestamp
         )
-
         return
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-    ) {
-
-        Row(
-            modifier = Modifier.padding(16.dp)
-        ) {
-
-            IconButton(
-                onClick = onBack
-            ) {
-
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "Back"
-                )
-            }
-
-            Text(
-                text = title,
-                style =
-                    MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Row(Modifier.padding(16.dp)) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-
-            contentPadding =
-                PaddingValues(
-                    bottom = 100.dp
-                )
-        ) {
-
-            items(orders) { order ->
-
-                val sale =
-                    order.itemTotal -
-                            order.discount
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            horizontal = 16.dp,
-                            vertical = 6.dp
-                        )
-                        .clickable {
-                            selectedOrder = order
-                        }
-                ) {
-
-                    Column(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-
-                        Text(
-                            text = "#${order.id}",
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Spacer(
-                            modifier = Modifier.height(4.dp)
-                        )
-
-                        Text(
-                            text =
-                                "📅 " +
-                                        java.text.SimpleDateFormat(
-                                            "dd MMM yyyy hh:mm a"
-                                        ).format(
-                                            java.util.Date(
-                                                order.timestamp
-                                            )
-                                        ),
-
-                            style =
-                                MaterialTheme.typography.bodySmall
-                        )
-
-                        Spacer(
-                            modifier = Modifier.height(8.dp)
-                        )
-
-                        Text(
-                            text = order.customerName
-                        )
-
-                        Text(
-                            text = "Sale ₹$sale"
-                        )
-
-                        Text(
-                            text = "${order.items.size} Items"
-                        )
-
-                        Text(
-                            text = "Delivered"
-                        )
+        if (title != "Today's Orders") {
+            val total = orders.sumOf { it.itemTotal - it.discount }
+            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column { Text("Delivered Orders"); Text(orders.size.toString(), fontWeight = FontWeight.Bold) }
+                    Column { Text("Sales"); Text("₹$total", fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 100.dp)) {
+            items(orders, key = { it.id }) { order ->
+                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable { selected = order }) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("#${order.id}", fontWeight = FontWeight.Bold)
+                        Text(java.text.SimpleDateFormat("dd/MM/yyyy hh:mm a").format(java.util.Date(order.timestamp)), style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(6.dp))
+                        Text(order.customerName)
+                        Text("${order.items.size} Items")
+                        Text(order.status.replace('_', ' '), fontWeight = FontWeight.SemiBold)
+                        if (order.status == "DELIVERED") Text("Sale ₹${order.itemTotal - order.discount}")
                     }
                 }
             }
         }
     }
+}
+
+private fun rangeForTitle(title: String, today: LocalDate, zone: ZoneId): Pair<Long, Long> {
+    val startDate = when (title) {
+        "This Week Orders" -> today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        "This Month Orders" -> today.withDayOfMonth(1)
+        else -> today
+    }
+    val endDate = when (title) {
+        "This Week Orders" -> startDate.plusWeeks(1)
+        "This Month Orders" -> startDate.plusMonths(1)
+        else -> startDate.plusDays(1)
+    }
+    return startDate.atStartOfDay(zone).toInstant().toEpochMilli() to endDate.atStartOfDay(zone).toInstant().toEpochMilli()
 }

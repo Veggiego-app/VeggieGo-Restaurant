@@ -295,7 +295,7 @@ class RestaurantMessagingService :
                 )
                 .setCategory(
                     NotificationCompat
-                        .CATEGORY_ALARM
+                        .CATEGORY_CALL
                 )
                 .setVisibility(
                     NotificationCompat

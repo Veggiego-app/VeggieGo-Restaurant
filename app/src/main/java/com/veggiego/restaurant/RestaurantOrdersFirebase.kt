@@ -1,1279 +1,200 @@
 package com.veggiego.restaurant
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.FirebaseFirestore
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.Icon
-import androidx.compose.ui.graphics.Color
-import android.content.Intent
-import androidx.compose.ui.platform.LocalContext
 
-data class RestaurantOrder(
-
-    val id: String = "",
-
-    val customerName: String = "",
-
-    val customerPhone: String = "",
-
-    val area: String = "",
-
-    val paymentMethod: String = "",
-
-    val itemsCount: Int = 0,
-
-    val total: Int = 0,
-
-    val status: String = "",
-
-    val restaurantName: String = "",
-
-    val riderId: String = "",
-
-    val riderName: String = "",
-
-    val riderPhone: String = "",
-
-    val discount: Int = 0,
-
-    val packagingFee: Int = 0,
-
-    val items: List<Map<String, Any>> = emptyList(),
-
-    val timestamp: Long = 0L
+private data class RestaurantOrderUi(
+    val id: String,
+    val customerName: String,
+    val customerPhone: String,
+    val area: String,
+    val city: String,
+    val paymentMethod: String,
+    val total: Int,
+    val itemTotal: Int,
+    val packagingFee: Int,
+    val discount: Int,
+    val status: String,
+    val items: List<Map<String, Any>>,
+    val timestamp: Long,
+    val payout: Double,
+    val compensation: Double,
+    val penalty: Double,
+    val adminRemark: String
 )
 
 @Composable
-fun RestaurantOrdersFirebase(
-    selectedTab: String
-) {
+fun RestaurantOrdersFirebase(selectedTab: String) {
+    val db = FirebaseFirestore.getInstance()
+    var orders by remember { mutableStateOf(emptyList<RestaurantOrderUi>()) }
+    var selected by remember { mutableStateOf<RestaurantOrderUi?>(null) }
+    var rejectOrder by remember { mutableStateOf<RestaurantOrderUi?>(null) }
+    var rejectReason by remember { mutableStateOf("") }
 
-    val db =
-        FirebaseFirestore.getInstance()
+    BackHandler(enabled = selected != null) { selected = null }
 
-    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        val listener = RestaurantRepository().restaurantOrders().addSnapshotListener { value, _ ->
+            if (value == null) return@addSnapshotListener
+            orders = value.documents.filter {
+                it.getString("restaurantId") == RestaurantSession.restaurantId
+            }.map { doc ->
+                val data = doc.data ?: emptyMap()
+                RestaurantOrderUi(
+                    id = doc.id,
+                    customerName = doc.getString("customerName").orEmpty(),
+                    customerPhone = doc.getString("customerPhone").orEmpty(),
+                    area = doc.getString("area").orEmpty(),
+                    city = doc.getString("city").orEmpty(),
+                    paymentMethod = doc.getString("paymentMethod").orEmpty(),
+                    total = number(data, "total").toInt(),
+                    itemTotal = number(data, "itemTotal").toInt(),
+                    packagingFee = number(data, "packagingFee").toInt(),
+                    discount = number(data, "restaurantDiscount", "discount").toInt(),
+                    status = doc.getString("status").orEmpty(),
+                    items = doc.get("items") as? List<Map<String, Any>> ?: emptyList(),
+                    timestamp = number(data, "timestamp", "createdAt").toLong(),
+                    payout = number(data, "restaurantPayout", "restaurantAmount", "payout"),
+                    compensation = number(data, "restaurantCompensation", "compensation"),
+                    penalty = number(data, "restaurantPenalty", "penalty"),
+                    adminRemark = string(data, "restaurantAdminRemark", "adminRemark", "settlementRemark")
+                )
+            }
+        }
+        onDispose { listener.remove() }
+    }
 
-    var orders by remember {
+    selected?.let { order ->
+        OrderDetailsScreen(
+            onBack = { selected = null },
+            orderId = order.id,
+            customerName = order.customerName,
+            customerPhone = order.customerPhone,
+            area = order.area,
+            city = order.city,
+            total = order.total,
+            items = order.items,
+            itemTotal = order.itemTotal,
+            discount = order.discount,
+            timestamp = order.timestamp
+        )
+        return
+    }
 
-        mutableStateOf(
-            listOf<RestaurantOrder>()
+    val filtered = orders.filter { order ->
+        when (selectedTab) {
+            "ALL" -> true
+            "NEW" -> order.status in setOf("APPROVED", "NEW", "PENDING", "RESTAURANT_PENDING")
+            "PREPARING" -> order.status in setOf("ACCEPTED", "PREPARING")
+            "READY" -> order.status in setOf("READY_FOR_PICKUP", "RIDER_ASSIGNED")
+            "ON_THE_WAY" -> order.status in setOf("PICKED_UP", "OUT_FOR_DELIVERY")
+            "COMPLETED" -> order.status == "DELIVERED"
+            "CANCELLED" -> order.status in setOf("CANCELLED", "REJECTED")
+            else -> false
+        }
+    }.sortedByDescending { it.timestamp }
+
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 100.dp)) {
+        items(filtered, key = { it.id }) { order ->
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clickable { selected = order }
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("🧾 #${order.id}", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
+                        StatusBadge(order.status)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text("👤 ${order.customerName}")
+                    Text("📍 ${order.area}${if (order.city.isNotBlank()) ", ${order.city}" else ""}")
+                    Text("🛒 ${order.items.size} Items")
+                    Text("💰 ₹${order.itemTotal + order.packagingFee - order.discount}", fontWeight = FontWeight.SemiBold)
+
+                    if (order.status == "DELIVERED") {
+                        val payout = if (order.payout > 0) order.payout else fallbackPayout(order)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Restaurant Payout: ₹${payout.toInt()}", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                    }
+                    if (order.status in setOf("CANCELLED", "REJECTED") && (order.compensation != 0.0 || order.penalty != 0.0 || order.adminRemark.isNotBlank())) {
+                        Spacer(Modifier.height(8.dp))
+                        if (order.compensation != 0.0) Text("Compensation: ₹${order.compensation.toInt()}", color = Color(0xFF2E7D32))
+                        if (order.penalty != 0.0) Text("Penalty: -₹${order.penalty.toInt()}", color = MaterialTheme.colorScheme.error)
+                        if (order.adminRemark.isNotBlank()) Text("Admin: ${order.adminRemark}")
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    when {
+                        order.status in setOf("APPROVED", "NEW", "PENDING", "RESTAURANT_PENDING") -> Row {
+                            Button(onClick = { db.collection("orders").document(order.id).update("status", "PREPARING") }) { Text("ACCEPT") }
+                            Spacer(Modifier.width(8.dp))
+                            Button(onClick = { rejectOrder = order }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("REJECT") }
+                        }
+                        order.status in setOf("ACCEPTED", "PREPARING") -> Button(onClick = { db.collection("orders").document(order.id).update("status", "READY_FOR_PICKUP") }) { Text("READY FOR PICKUP") }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(onClick = { selected = order }, modifier = Modifier.fillMaxWidth()) { Text("VIEW DETAILS") }
+                }
+            }
+        }
+    }
+
+    rejectOrder?.let { order ->
+        AlertDialog(
+            onDismissRequest = { rejectOrder = null },
+            title = { Text("Reject Order") },
+            text = { OutlinedTextField(rejectReason, { rejectReason = it }, label = { Text("Reason") }) },
+            confirmButton = {
+                Button(onClick = {
+                    if (rejectReason.trim().length >= 3) {
+                        db.collection("orders").document(order.id).update(
+                            mapOf(
+                                "status" to "CANCELLED",
+                                "cancelReason" to rejectReason.trim(),
+                                "cancelledBy" to "RESTAURANT",
+                                "cancelledAt" to System.currentTimeMillis(),
+                                "updatedAt" to System.currentTimeMillis()
+                            )
+                        )
+                        rejectReason = ""
+                        rejectOrder = null
+                    }
+                }) { Text("SUBMIT") }
+            },
+            dismissButton = { TextButton(onClick = { rejectOrder = null }) { Text("CLOSE") } }
         )
     }
-
-    // ✅ REALTIME ORDERS
-
-    LaunchedEffect(Unit) {
-
-        RestaurantRepository()
-
-            .restaurantOrders()
-
-            .addSnapshotListener { value, _ ->
-
-                if (value != null) {
-                    orders =
-
-                        value.documents
-
-                            .filter {
-
-                                it.getString(
-                                    "restaurantId"
-                                ) == RestaurantSession.restaurantId
-
-                            }
-
-                            .map {
-
-                            RestaurantOrder(
-
-                                id = it.id,
-
-                                customerName =
-                                    it.getString(
-                                        "customerName"
-                                    ) ?: "",
-
-                                customerPhone =
-                                    it.getString(
-                                        "customerPhone"
-                                    ) ?: "",
-
-                                area =
-                                    it.getString(
-                                        "area"
-                                    ) ?: "",
-
-                                paymentMethod =
-                                    it.getString(
-                                        "paymentMethod"
-                                    ) ?: "",
-
-                                itemsCount =
-                                    (it.get("items") as? List<*>)?.size ?: 0,
-
-                                total =
-                                    it.getLong(
-                                        "total"
-                                    )?.toInt()
-                                        ?: 0,
-
-                                status =
-                                    it.getString(
-                                        "status"
-                                    ) ?: "PENDING",
-
-                                restaurantName =
-                                    it.getString(
-                                        "restaurantName"
-                                    ) ?: "",
-
-                                riderId =
-                                    it.getString(
-                                        "riderId"
-                                    ) ?: "",
-
-                                riderName =
-                                    it.getString(
-                                        "riderName"
-                                    ) ?: "",
-
-                                riderPhone =
-                                    it.getString(
-                                        "riderPhone"
-                                    ) ?: "",
-
-                                discount =
-                                    it.getLong(
-                                        "discount"
-                                    )?.toInt()
-                                        ?: 0,
-
-                                packagingFee =
-                                    it.getLong(
-                                        "packagingFee"
-                                    )?.toInt()
-                                        ?: 0,
-
-                                items =
-                                    it.get(
-                                        "items"
-                                    ) as? List<Map<String, Any>>
-                                        ?: emptyList(),
-
-                                timestamp =
-                                    it.getLong(
-                                        "timestamp"
-                                    ) ?: 0L
-
-                            )
-                        }
-                }
-            }
-    }
-
-    LazyColumn(
-
-        modifier =
-            Modifier.fillMaxSize()
-
-    ) {
-        val filteredOrders = orders.filter { order ->
-
-            when (selectedTab) {
-
-                "NEW" ->
-                    order.status == "APPROVED"
-
-                "PREPARING" ->
-                    order.status == "PREPARING"
-
-                "READY" ->
-
-                    order.status == "READY_FOR_PICKUP"
-
-                            ||
-
-                            order.status == "RIDER_ASSIGNED"
-
-                "ON_THE_WAY" ->
-
-                    order.status == "PICKED_UP"
-
-                            ||
-
-                            order.status == "OUT_FOR_DELIVERY"
-
-                "COMPLETED" ->
-                    order.status == "DELIVERED"
-
-                "CANCELLED" ->
-                    order.status == "CANCELLED"
-
-                else -> false
-            }
-        }
-        val sortedOrders =
-
-            filteredOrders
-                .sortedByDescending {
-
-                    it.timestamp
-
-                }
-        items(sortedOrders) { order ->
-
-            var showDetails by remember {
-                mutableStateOf(false)
-            }
-            var showRejectDialog by remember {
-                mutableStateOf(false)
-            }
-
-            var rejectReason by remember {
-                mutableStateOf("")
-            }
-
-            Card(
-
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp)
-
-            ) {
-
-                Column(
-
-                    modifier =
-                        Modifier.padding(16.dp)
-
-                ) {
-
-                    Text(
-                        text = "🧾 #${order.id}",
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2
-                    )
-                    Spacer(
-                        modifier =
-                            Modifier.height(4.dp)
-                    )
-
-                    Text(
-
-                        text =
-                            "📅 " +
-                                    java.text.SimpleDateFormat(
-                                        "dd MMM hh:mm a"
-                                    ).format(
-                                        java.util.Date(
-                                            order.timestamp
-                                        )
-                                    )
-
-                    )
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(8.dp)
-                    )
-
-                    Text(
-                        text =
-                            "👤 ${order.customerName}"
-                    )
-                    Text(
-                        text =
-                            "📱 ${order.customerPhone}"
-                    )
-
-                    Text(
-                        text =
-                            "📍 ${order.area}"
-                    )
-
-                    Text(
-                        text =
-                            "🛒 ${order.itemsCount} Items"
-                    )
-                    val restaurantAmount =
-
-                        order.items.sumOf {
-
-                            (it["itemTotal"] as? Long)
-                                ?.toInt() ?: 0
-
-                        } + order.packagingFee - order.discount
-
-                    Text(
-                        text =
-                            "💰 ₹$restaurantAmount"
-                    )
-
-                    Text(
-                        text =
-                            "📌 ${order.status}"
-                    )
-
-                    /*
-                     * Rider assign होने के बाद ही
-                     * Rider information दिखाई जाएगी.
-                     */
-                    if (
-                        order.status != "DELIVERED" &&
-                        (
-                                order.riderId.isNotBlank() ||
-                                        order.riderName.isNotBlank() ||
-                                        order.riderPhone.isNotBlank()
-                                )
-                    ) {
-
-                        Spacer(
-                            modifier =
-                                Modifier.height(10.dp)
-                        )
-
-                        Card(
-
-                            modifier =
-                                Modifier.fillMaxWidth(),
-
-                            colors =
-                                CardDefaults.cardColors(
-                                    containerColor =
-                                        Color(0xFFE3F2FD)
-                                )
-
-                        ) {
-
-                            Column(
-                                modifier =
-                                    Modifier.padding(12.dp)
-                            ) {
-
-                                Text(
-                                    text =
-                                        "🛵 Assigned Rider",
-                                    fontWeight =
-                                        FontWeight.Bold,
-                                    color =
-                                        Color(0xFF1565C0)
-                                )
-
-                                Spacer(
-                                    modifier =
-                                        Modifier.height(5.dp)
-                                )
-
-                                Text(
-                                    text =
-                                        if (
-                                            order.riderName
-                                                .isNotBlank()
-                                        ) {
-                                            order.riderName
-                                        } else {
-                                            "Rider"
-                                        },
-                                    fontWeight =
-                                        FontWeight.SemiBold
-                                )
-
-                                if (
-                                    order.riderPhone
-                                        .isNotBlank()
-                                ) {
-
-                                    Spacer(
-                                        modifier =
-                                            Modifier.height(2.dp)
-                                    )
-
-                                    Text(
-                                        text =
-                                            "📞 ${order.riderPhone}"
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(12.dp)
-                    )
-
-                    when (selectedTab) {
-
-                        "NEW" -> {
-
-                            Row {
-
-                                Button(
-
-                                    onClick = {
-
-                                        db.collection("orders")
-                                            .document(order.id)
-                                            .update(
-                                                "status",
-                                                "PREPARING"
-                                            )
-                                    },
-
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor =
-                                            Color(0xFF2E7D32)
-                                    )
-
-                                ) {
-
-                                    Row {
-
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = Color.White
-                                        )
-
-                                        Spacer(
-                                            modifier = Modifier.width(4.dp)
-                                        )
-
-                                        Text(
-                                            text = "ACCEPT",
-                                            color = Color.White
-                                        )
-                                    }
-                                }
-
-                                Spacer(
-                                    modifier =
-                                        Modifier.width(8.dp)
-                                )
-
-                                Button(
-
-                                    onClick = {
-
-                                        showRejectDialog = true
-                                    },
-
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor =
-                                            MaterialTheme.colorScheme.error
-                                    )
-
-                                ) {
-
-                                    Row {
-
-                                        Icon(
-                                            Icons.Default.Close,
-                                            contentDescription = null
-                                        )
-
-                                        Spacer(
-                                            modifier = Modifier.width(4.dp)
-                                        )
-
-                                        Text("REJECT")
-                                    }
-                                }
-                            }
-                        }
-
-                        "PREPARING" -> {
-
-                            Button(
-
-                                onClick = {
-
-                                    db.collection("orders")
-                                        .document(order.id)
-                                        .update(
-                                            "status",
-                                            "READY_FOR_PICKUP"
-                                        )
-                                }
-
-                            ) {
-
-                                Text("READY FOR PICKUP")
-                            }
-                        }
-
-                        "READY" -> {
-
-                            Text(
-                                text = "⏳ Waiting Rider"
-                            )
-                        }
-
-                        "ON_THE_WAY" -> {
-
-                            Text(
-                                text = "🚚 Out For Delivery"
-                            )
-                        }
-
-                        "COMPLETED" -> {
-
-                            Text(
-                                text = "✅ Delivered"
-                            )
-                        }
-
-                        "CANCELLED" -> {
-
-                            Text(
-                                text = "❌ Cancelled"
-                            )
-                        }
-                    }
-                    Spacer(
-                        modifier =
-                            Modifier.height(8.dp)
-                    )
-
-                    Button(
-
-                        onClick = {
-                            showDetails = true
-                        }
-
-                    ) {
-
-                        Row {
-
-                            Icon(
-                                Icons.Default.Visibility,
-                                contentDescription = null
-                            )
-
-                            Spacer(
-                                modifier = Modifier.width(4.dp)
-                            )
-
-                            Text("VIEW DETAILS")
-                        }
-                    }
-                }
-            }
-            if (showDetails) {
-
-                AlertDialog(
-
-                    onDismissRequest = {
-                        showDetails = false
-                    },
-
-                    confirmButton = {
-
-                        TextButton(
-
-                            onClick = {
-                                showDetails = false
-                            }
-
-                        ) {
-
-                            Text("CLOSE")
-                        }
-                    },
-
-                    title = { },
-
-                    text = {
-
-                        Column(
-
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 500.dp)
-                                    .verticalScroll(
-                                        rememberScrollState()
-                                    )
-
-                        ) {
-
-                            Text(
-                                text = "VEGGIEGO",
-                                style =
-                                    MaterialTheme.typography
-                                        .headlineSmall,
-                                fontWeight =
-                                    FontWeight.Bold
-                            )
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(4.dp)
-                            )
-
-                            Text(
-                                text =
-                                    RestaurantSession.restaurantName,
-                                fontWeight =
-                                    FontWeight.Bold
-                            )
-
-                            Text(
-                                text =
-                                    "Restaurant Address"
-                            )
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(12.dp)
-                            )
-
-                            HorizontalDivider()
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(8.dp)
-                            )
-
-                            Text(
-                                text =
-                                    "Order ID"
-                            )
-
-                            Text(
-                                text =
-                                    order.id,
-                                fontWeight =
-                                    FontWeight.Bold
-                            )
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(8.dp)
-                            )
-
-                            Text(
-                                text =
-                                    "Date & Time"
-                            )
-
-                            Text(
-                                text =
-                                    java.text.SimpleDateFormat(
-                                        "dd MMM yyyy hh:mm a"
-                                    ).format(
-                                        java.util.Date(
-                                            order.timestamp
-                                        )
-                                    )
-                            )
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(8.dp)
-                            )
-
-                            Text(
-                                text =
-                                    "Customer Name"
-                            )
-
-                            Text(
-                                text =
-                                    order.customerName,
-                                fontWeight =
-                                    FontWeight.Bold
-                            )
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(12.dp)
-                            )
-
-                            HorizontalDivider()
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(12.dp)
-                            )
-
-                            order.items.forEach { item ->
-
-                                val name =
-                                    item["name"]
-                                        ?.toString()
-                                        ?: ""
-
-                                val qty =
-                                    (item["quantity"]
-                                            as? Long)
-                                        ?.toInt()
-                                        ?: 1
-
-                                val variant =
-                                    item["variant"]
-                                        ?.toString()
-                                        ?: ""
-
-                                val itemPrice =
-                                    (item["itemTotal"] as? Long)
-                                        ?.toInt()
-                                        ?: 0
-
-                                Row(
-
-                                    modifier =
-                                        Modifier.fillMaxWidth(),
-
-                                    horizontalArrangement =
-                                        Arrangement.SpaceBetween
-
-                                ) {
-
-                                    Text(
-                                        text =
-                                            "$qty × $name",
-
-                                        modifier =
-                                            Modifier.weight(1f)
-                                    )
-
-                                    Text(
-                                        text =
-                                            "₹$itemPrice",
-
-                                        fontWeight =
-                                            FontWeight.Bold
-                                    )
-                                }
-
-                                if (
-                                    variant.isNotBlank()
-                                ) {
-
-                                    Text(
-                                        text =
-                                            variant
-                                    )
-                                }
-
-                                Spacer(
-                                    modifier =
-                                        Modifier.height(6.dp)
-                                )
-                            }
-
-                            HorizontalDivider()
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(8.dp)
-                            )
-
-                            val itemTotal =
-
-                                order.items.sumOf {
-
-                                    (
-                                            it["itemTotal"] as? Long
-                                            )?.toInt() ?: 0
-                                }
-
-                            Row(
-
-                                modifier =
-                                    Modifier.fillMaxWidth(),
-
-                                horizontalArrangement =
-                                    Arrangement.SpaceBetween
-
-                            ) {
-
-                                Text("Sub Total")
-
-                                Text("₹$itemTotal")
-                            }
-
-                            if (order.packagingFee > 0) {
-
-                                Row(
-
-                                    modifier =
-                                        Modifier.fillMaxWidth(),
-
-                                    horizontalArrangement =
-                                        Arrangement.SpaceBetween
-
-                                ) {
-
-                                    Text("Packaging Charge")
-
-                                    Text("₹${order.packagingFee}")
-                                }
-                            }
-
-                            Row(
-
-                                modifier =
-                                    Modifier.fillMaxWidth(),
-
-                                horizontalArrangement =
-                                    Arrangement.SpaceBetween
-
-                            ) {
-
-                                Text("Discount")
-
-                                Text("-₹${order.discount}")
-                            }
-
-                            HorizontalDivider()
-
-                            Row(
-
-                                modifier =
-                                    Modifier.fillMaxWidth(),
-
-                                horizontalArrangement =
-                                    Arrangement.SpaceBetween
-
-                            ) {
-
-                                Text(
-                                    text = "Grand Total",
-                                    fontWeight = FontWeight.Bold
-                                )
-
-                                Text(
-                                    text =
-                                        "₹${itemTotal + order.packagingFee - order.discount}",
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(16.dp)
-                            )
-
-                            Text(
-                                text =
-                                    "Thank You For Your Order!"
-                            )
-
-                            Text(
-                                text =
-                                    "Visit Again!"
-                            )
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(16.dp)
-                            )
-
-                            Button(
-
-                                onClick = {
-
-                                    val kotText = buildString {
-
-                                        appendLine("VEGGIEGO")
-
-                                        appendLine()
-
-                                        appendLine(
-                                            order.restaurantName
-                                        )
-
-                                        appendLine()
-
-                                        appendLine(
-                                            "Order ID : ${order.id}"
-                                        )
-
-                                        appendLine(
-                                            "Date : " +
-                                                    java.text.SimpleDateFormat(
-                                                        "dd MMM yyyy hh:mm a"
-                                                    ).format(
-                                                        java.util.Date(
-                                                            order.timestamp
-                                                        )
-                                                    )
-                                        )
-
-                                        appendLine(
-                                            "Customer : ${order.customerName}"
-                                        )
-
-                                        appendLine()
-
-                                        appendLine(
-                                            "----------------"
-                                        )
-
-                                        order.items.forEach { item ->
-
-                                            val name =
-                                                item["name"]?.toString()
-                                                    ?: ""
-
-                                            val qty =
-                                                (item["quantity"] as? Long)
-                                                    ?.toInt()
-                                                    ?: 1
-
-                                            appendLine(
-                                                "$qty x $name"
-                                            )
-
-                                            val variant =
-                                                item["variant"]?.toString()
-                                                    ?: ""
-
-                                            if (
-                                                variant.isNotBlank()
-                                            ) {
-
-                                                appendLine(
-                                                    variant
-                                                )
-                                            }
-                                        }
-
-                                        appendLine(
-                                            "----------------"
-                                        )
-                                        val itemTotal =
-
-                                            order.items.sumOf {
-
-                                                (
-                                                        it["itemTotal"] as? Long
-                                                        )?.toInt() ?: 0
-                                            }
-
-                                        appendLine(
-                                            "Sub Total : ₹$itemTotal"
-                                        )
-
-                                        if (order.packagingFee > 0) {
-
-                                            appendLine(
-                                                "Packaging : ₹${order.packagingFee}"
-                                            )
-                                        }
-
-                                        appendLine(
-                                            "Discount : ₹${order.discount}"
-                                        )
-
-                                        appendLine(
-                                            "Grand Total : ₹${itemTotal + order.packagingFee - order.discount}"
-                                        )
-
-                                        appendLine()
-
-                                        appendLine(
-                                            "Thank You For Your Order!"
-                                        )
-
-                                        appendLine(
-                                            "Visit Again!"
-                                        )
-                                    }
-
-                                    KotPrinter.print(
-
-                                        context,
-
-                                        kotText
-
-                                    )
-                                }
-
-                            ) {
-
-                                Text(
-                                    "🖨 PRINT KOT"
-                                )
-                            }
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(8.dp)
-                            )
-
-                            Button(
-
-                                onClick = {
-
-                                    val pdfText = buildString {
-
-                                        appendLine(
-                                            order.restaurantName
-                                        )
-                                        appendLine()
-
-                                        appendLine("----------------------------")
-
-                                        appendLine("Order ID : ${order.id}")
-
-                                        appendLine(
-                                            "Date : " +
-                                                    java.text.SimpleDateFormat(
-                                                        "dd MMM yyyy hh:mm a"
-                                                    ).format(
-                                                        java.util.Date(
-                                                            order.timestamp
-                                                        )
-                                                    )
-                                        )
-
-                                        appendLine(
-                                            "Customer : ${order.customerName}"
-                                        )
-
-                                        appendLine("----------------------------")
-
-                                        order.items.forEach { item ->
-
-                                            val name =
-                                                item["name"]?.toString()
-                                                    ?: ""
-
-                                            val qty =
-                                                (item["quantity"] as? Long)
-                                                    ?.toInt()
-                                                    ?: 1
-
-                                            val rate =
-                                                (item["variantPrice"] as? Long)
-                                                    ?.toInt()
-                                                    ?: 0
-
-                                            val amount =
-                                                (item["itemTotal"] as? Long)
-                                                    ?.toInt()
-                                                    ?: 0
-
-                                            appendLine(name)
-
-                                            val variant =
-                                                item["variant"]?.toString()
-                                                    ?: ""
-
-                                            if (
-                                                variant.isNotBlank()
-                                            ) {
-
-                                                appendLine(variant)
-                                            }
-
-                                            appendLine(
-                                                "Qty $qty x ₹$rate = ₹$amount"
-                                            )
-
-                                            appendLine("----------------------------")
-
-                                        }
-                                        val itemTotal =
-
-                                            order.items.sumOf {
-
-                                                (
-                                                        it["itemTotal"] as? Long
-                                                        )?.toInt() ?: 0
-                                            }
-
-                                        appendLine()
-
-                                        appendLine(
-                                            "Sub Total : ₹$itemTotal"
-                                        )
-
-                                        if (order.packagingFee > 0) {
-
-                                            appendLine(
-                                                "Packaging : ₹${order.packagingFee}"
-                                            )
-                                        }
-
-                                        appendLine(
-                                            "Discount : ₹${order.discount}"
-                                        )
-
-                                        appendLine(
-                                            "Grand Total : ₹${itemTotal + order.packagingFee - order.discount}"
-                                        )
-
-                                        appendLine()
-
-                                        appendLine(
-                                            "Thank You For Your Order!"
-                                        )
-
-                                        appendLine(
-                                            "Visit Again!"
-                                        )
-                                    }
-
-                                    PdfGenerator.createPdf(
-
-                                        context = context,
-
-                                        fileName =
-                                            "Order_${order.id}.pdf",
-
-                                        content =
-                                            pdfText
-                                    )
-                                },
-
-                                modifier =
-                                    Modifier.fillMaxWidth()
-
-                            ) {
-
-                                Text(
-                                    "📄 PDF"
-                                )
-                            }
-
-                            Spacer(
-                                modifier =
-                                    Modifier.height(8.dp)
-                            )
-                        }
-                    }
-                )
-            }
-            if (showRejectDialog) {
-
-                AlertDialog(
-
-                    onDismissRequest = {
-                        showRejectDialog = false
-                    },
-
-                    title = {
-                        Text("Reject Order")
-                    },
-
-                    text = {
-
-                        Column {
-
-                            OutlinedTextField(
-
-                                value = rejectReason,
-
-                                onValueChange = {
-                                    rejectReason = it
-                                },
-
-                                label = {
-                                    Text("Reason")
-                                }
-                            )
-
-                            Spacer(
-                                modifier = Modifier.height(8.dp)
-                            )
-
-                            Text(
-                                text = "Minimum 3 characters required"
-                            )
-                            if (
-                                rejectReason.isNotBlank() &&
-                                rejectReason.trim().length < 3
-                            ) {
-
-                                Text(
-                                    text = "Reason must be at least 3 characters"
-                                )
-                            }
-                        }
-                    },
-
-                    confirmButton = {
-
-                        Button(
-
-                            onClick = {
-
-                                if (
-                                    rejectReason.trim().length >= 3
-                                ) {
-
-                                    db.collection("orders")
-                                        .document(order.id)
-
-                                        .update(
-
-                                            mapOf(
-
-                                                "status" to "CANCELLED",
-
-                                                "cancelReason"
-                                                        to
-                                                        rejectReason.trim(),
-
-                                                "cancelledBy"
-                                                        to
-                                                        "RESTAURANT",
-
-                                                "cancelledAt"
-                                                        to
-                                                        System.currentTimeMillis(),
-
-                                                "updatedAt"
-                                                        to
-                                                        System.currentTimeMillis()
-                                            )
-                                        )
-
-                                    showRejectDialog = false
-
-                                    rejectReason = ""
-                                }
-                            }
-
-                        ) {
-
-                            Text("SUBMIT")
-                        }
-                    },
-
-                    dismissButton = {
-
-                        TextButton(
-
-                            onClick = {
-                                showRejectDialog = false
-                            }
-
-                        ) {
-
-                            Text("CLOSE")
-                        }
-                    }
-                )
-            }
-        }
+}
+
+private fun number(data: Map<String, Any>, vararg keys: String): Double {
+    keys.forEach { key -> (data[key] as? Number)?.toDouble()?.let { return it } }
+    return 0.0
+}
+private fun string(data: Map<String, Any>, vararg keys: String): String {
+    keys.forEach { key -> data[key]?.toString()?.takeIf { it.isNotBlank() }?.let { return it } }
+    return ""
+}
+private fun fallbackPayout(order: RestaurantOrderUi): Double {
+    val base = (order.itemTotal + order.packagingFee - order.discount).coerceAtLeast(0)
+    return base * 0.75
+}
+
+@Composable private fun StatusBadge(status: String) {
+    val label = status.replace('_', ' ')
+    Surface(color = when {
+        status == "DELIVERED" -> Color(0xFFE8F5E9)
+        status in setOf("CANCELLED", "REJECTED") -> Color(0xFFFFEBEE)
+        status in setOf("READY_FOR_PICKUP", "RIDER_ASSIGNED") -> Color(0xFFE3F2FD)
+        else -> Color(0xFFFFF3E0)
+    }, shape = MaterialTheme.shapes.small) {
+        Text(label, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
     }
 }

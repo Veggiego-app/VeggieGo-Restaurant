@@ -6,6 +6,9 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -31,6 +34,9 @@ class NewOrderPopupActivity :
     ComponentActivity() {
 
     private var mediaPlayer: MediaPlayer? =
+        null
+
+    private var vibrator: Vibrator? =
         null
 
     private var currentOrderId: String =
@@ -74,6 +80,7 @@ class NewOrderPopupActivity :
         }
 
         startOrderSound()
+        startOrderVibration()
 
         setContent {
 
@@ -116,6 +123,78 @@ class NewOrderPopupActivity :
         }
     }
 
+    private fun startOrderVibration() {
+
+        try {
+
+            vibrator =
+                if (
+                    Build.VERSION.SDK_INT >=
+                    Build.VERSION_CODES.S
+                ) {
+
+                    val manager =
+                        getSystemService(
+                            VibratorManager::class.java
+                        )
+
+                    manager.defaultVibrator
+
+                } else {
+
+                    @Suppress("DEPRECATION")
+                    getSystemService(
+                        Context.VIBRATOR_SERVICE
+                    ) as Vibrator
+                }
+
+            if (vibrator?.hasVibrator() != true) {
+                return
+            }
+
+            val pattern =
+                longArrayOf(
+                    0,
+                    1000,
+                    500
+                )
+
+            if (
+                Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.O
+            ) {
+
+                vibrator?.vibrate(
+                    VibrationEffect.createWaveform(
+                        pattern,
+                        0
+                    )
+                )
+
+            } else {
+
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(
+                    pattern,
+                    0
+                )
+            }
+
+        } catch (error: Exception) {
+            error.printStackTrace()
+        }
+    }
+
+    private fun stopOrderVibration() {
+
+        try {
+            vibrator?.cancel()
+        } catch (ignored: Exception) {
+        }
+
+        vibrator = null
+    }
+
     private fun stopOrderSound() {
 
         try {
@@ -140,6 +219,7 @@ class NewOrderPopupActivity :
     private fun closePopup() {
 
         stopOrderSound()
+        stopOrderVibration()
 
         if (
             currentOrderId.isNotBlank()
@@ -161,6 +241,7 @@ class NewOrderPopupActivity :
     override fun onDestroy() {
 
         stopOrderSound()
+        stopOrderVibration()
 
         super.onDestroy()
     }
@@ -216,6 +297,39 @@ private fun NewOrderPopupScreen(
     val context =
         androidx.compose.ui.platform
             .LocalContext.current
+
+    val currentStatus =
+        orderData["status"]
+            ?.toString()
+            ?.trim()
+            ?.uppercase()
+            ?: ""
+
+    val canAcceptOrReject =
+        currentStatus == "NEW" ||
+                currentStatus == "APPROVED" ||
+                currentStatus == "PENDING" ||
+                currentStatus == "RESTAURANT_PENDING"
+
+    LaunchedEffect(
+        isLoading,
+        currentStatus
+    ) {
+        if (
+            !isLoading &&
+            currentStatus.isNotBlank() &&
+            !canAcceptOrReject
+        ) {
+            Toast.makeText(
+                context,
+                "Order status already updated: $currentStatus",
+                Toast.LENGTH_LONG
+            ).show()
+
+            delay(900)
+            onCompleted()
+        }
+    }
 
     // LOAD ORDER FROM FIRESTORE
 
@@ -817,7 +931,7 @@ private fun NewOrderPopupScreen(
                                     Modifier.weight(1f),
 
                                 enabled =
-                                    !isUpdating,
+                                    !isUpdating && canAcceptOrReject,
 
                                 colors =
                                     ButtonDefaults
@@ -849,31 +963,44 @@ private fun NewOrderPopupScreen(
                                         System
                                             .currentTimeMillis()
 
-                                    db.collection("orders")
-                                        .document(orderId)
-                                        .update(
+                                    val orderRef =
+                                        db.collection("orders")
+                                            .document(orderId)
+
+                                    db.runTransaction { transaction ->
+
+                                        val snapshot =
+                                            transaction.get(orderRef)
+
+                                        val latestStatus =
+                                            snapshot.getString("status")
+                                                ?.trim()
+                                                ?.uppercase()
+                                                ?: ""
+
+                                        val actionAllowed =
+                                            latestStatus == "NEW" ||
+                                                    latestStatus == "APPROVED" ||
+                                                    latestStatus == "PENDING" ||
+                                                    latestStatus == "RESTAURANT_PENDING"
+
+                                        if (!actionAllowed) {
+                                            throw IllegalStateException(
+                                                "ORDER_ALREADY_UPDATED:$latestStatus"
+                                            )
+                                        }
+
+                                        transaction.update(
+                                            orderRef,
                                             mapOf(
-                                                "status"
-                                                        to
-                                                        "PREPARING",
-
-                                                "preparationMinutes"
-                                                        to
-                                                        preparationMinutes,
-
-                                                "acceptedAt"
-                                                        to
-                                                        currentTime,
-
-                                                "statusChangedBy"
-                                                        to
-                                                        "RESTAURANT",
-
-                                                "updatedAt"
-                                                        to
-                                                        currentTime
+                                                "status" to "PREPARING",
+                                                "preparationMinutes" to preparationMinutes,
+                                                "acceptedAt" to currentTime,
+                                                "statusChangedBy" to "RESTAURANT",
+                                                "updatedAt" to currentTime
                                             )
                                         )
+                                    }
                                         .addOnSuccessListener {
 
                                             Toast.makeText(
@@ -884,18 +1011,30 @@ private fun NewOrderPopupScreen(
 
                                             onCompleted()
                                         }
-                                        .addOnFailureListener {
-                                                error ->
+                                        .addOnFailureListener { error ->
 
-                                            isUpdating =
-                                                false
+                                            isUpdating = false
 
-                                            Toast.makeText(
-                                                context,
+                                            if (
                                                 error.message
-                                                    ?: "Accept failed",
-                                                Toast.LENGTH_LONG
-                                            ).show()
+                                                    ?.startsWith(
+                                                        "ORDER_ALREADY_UPDATED"
+                                                    ) == true
+                                            ) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Order status has already been updated",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                                onCompleted()
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    error.message
+                                                        ?: "Accept failed",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
                                         }
                                 },
 
@@ -903,7 +1042,7 @@ private fun NewOrderPopupScreen(
                                     Modifier.weight(1.6f),
 
                                 enabled =
-                                    !isUpdating,
+                                    !isUpdating && canAcceptOrReject,
 
                                 colors =
                                     ButtonDefaults
@@ -1034,36 +1173,45 @@ private fun NewOrderPopupScreen(
                             System
                                 .currentTimeMillis()
 
-                        db.collection("orders")
-                            .document(orderId)
-                            .update(
+                        val orderRef =
+                            db.collection("orders")
+                                .document(orderId)
+
+                        db.runTransaction { transaction ->
+
+                            val snapshot =
+                                transaction.get(orderRef)
+
+                            val latestStatus =
+                                snapshot.getString("status")
+                                    ?.trim()
+                                    ?.uppercase()
+                                    ?: ""
+
+                            val actionAllowed =
+                                latestStatus == "NEW" ||
+                                        latestStatus == "APPROVED" ||
+                                        latestStatus == "PENDING" ||
+                                        latestStatus == "RESTAURANT_PENDING"
+
+                            if (!actionAllowed) {
+                                throw IllegalStateException(
+                                    "ORDER_ALREADY_UPDATED:$latestStatus"
+                                )
+                            }
+
+                            transaction.update(
+                                orderRef,
                                 mapOf(
-                                    "status"
-                                            to
-                                            "CANCELLED",
-
-                                    "cancelReason"
-                                            to
-                                            rejectReason
-                                                .trim(),
-
-                                    "cancelledBy"
-                                            to
-                                            "RESTAURANT",
-
-                                    "cancelledAt"
-                                            to
-                                            currentTime,
-
-                                    "statusChangedBy"
-                                            to
-                                            "RESTAURANT",
-
-                                    "updatedAt"
-                                            to
-                                            currentTime
+                                    "status" to "CANCELLED",
+                                    "cancelReason" to rejectReason.trim(),
+                                    "cancelledBy" to "RESTAURANT",
+                                    "cancelledAt" to currentTime,
+                                    "statusChangedBy" to "RESTAURANT",
+                                    "updatedAt" to currentTime
                                 )
                             )
+                        }
                             .addOnSuccessListener {
 
                                 Toast.makeText(
@@ -1074,23 +1222,35 @@ private fun NewOrderPopupScreen(
 
                                 onCompleted()
                             }
-                            .addOnFailureListener {
-                                    error ->
+                            .addOnFailureListener { error ->
 
-                                isUpdating =
-                                    false
+                                isUpdating = false
 
-                                Toast.makeText(
-                                    context,
+                                if (
                                     error.message
-                                        ?: "Reject failed",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                        ?.startsWith(
+                                            "ORDER_ALREADY_UPDATED"
+                                        ) == true
+                                ) {
+                                    Toast.makeText(
+                                        context,
+                                        "Order status has already been updated",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    onCompleted()
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        error.message
+                                            ?: "Reject failed",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
                             }
                     },
 
                     enabled =
-                        !isUpdating
+                        !isUpdating && canAcceptOrReject
 
                 ) {
 
