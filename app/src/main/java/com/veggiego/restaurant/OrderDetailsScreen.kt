@@ -531,6 +531,33 @@ fun OrderDetailsScreen(
                 color = Color.White
             )
         }
+
+        if (status == "PREPARING") {
+
+            Spacer(Modifier.height(10.dp))
+
+            Button(
+                onClick = {
+                    FirebaseFirestore.getInstance()
+                        .collection("orders")
+                        .document(orderId)
+                        .update("status", "READY_FOR_PICKUP")
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2E7D32)
+                )
+            ) {
+                Text(
+                    text = "🟢 MARK READY FOR PICKUP",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+        }
+
         Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = {

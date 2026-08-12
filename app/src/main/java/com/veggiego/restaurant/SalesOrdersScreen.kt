@@ -48,7 +48,15 @@ fun SalesOrdersScreen(title: String, onBack: () -> Unit) {
             orders = snapshot.documents.mapNotNull { doc ->
                 if (doc.getString("restaurantId") != RestaurantSession.restaurantId) return@mapNotNull null
                 val status = doc.getString("status").orEmpty()
-                if (title != "Today's Orders" && status != "DELIVERED") return@mapNotNull null
+                if (title == "Today's Orders") {
+                    if (status in setOf("PENDING", "NEW")) {
+                        return@mapNotNull null
+                    }
+                } else {
+                    if (status != "DELIVERED") {
+                        return@mapNotNull null
+                    }
+                }
                 val data = doc.data ?: return@mapNotNull null
                 val time = (data["timestamp"] as? Number)?.toLong() ?: 0L
                 if (time !in start until end) return@mapNotNull null

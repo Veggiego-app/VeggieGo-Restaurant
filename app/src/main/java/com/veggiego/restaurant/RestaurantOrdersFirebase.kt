@@ -12,6 +12,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.FirebaseFirestore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private data class RestaurantOrderUi(
     val id: String,
@@ -93,8 +96,8 @@ fun RestaurantOrdersFirebase(selectedTab: String) {
 
     val filtered = orders.filter { order ->
         when (selectedTab) {
-            "ALL" -> true
-            "NEW" -> order.status in setOf("APPROVED", "NEW", "PENDING", "RESTAURANT_PENDING")
+            "ALL" -> order.status !in setOf("PENDING", "NEW")
+            "NEW" -> order.status in setOf("APPROVED", "RESTAURANT_PENDING")
             "PREPARING" -> order.status in setOf("ACCEPTED", "PREPARING")
             "READY" -> order.status in setOf("READY_FOR_PICKUP", "RIDER_ASSIGNED")
             "ON_THE_WAY" -> order.status in setOf("PICKED_UP", "OUT_FOR_DELIVERY")
@@ -110,11 +113,27 @@ fun RestaurantOrdersFirebase(selectedTab: String) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clickable { selected = order }
             ) {
                 Column(Modifier.padding(16.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("🧾 #${order.id}", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
+                    Text(
+                        text = "🧾 #${order.id}",
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "🕒 ${formatOrderDate(order.timestamp)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF1565C0)
+                        )
+
                         StatusBadge(order.status)
                     }
-                    Spacer(Modifier.height(6.dp))
+
+                    Spacer(Modifier.height(8.dp))
                     Text("👤 ${order.customerName}")
                     Text("📍 ${order.area}${if (order.city.isNotBlank()) ", ${order.city}" else ""}")
                     Text("🛒 ${order.items.size} Items")
@@ -133,7 +152,7 @@ fun RestaurantOrdersFirebase(selectedTab: String) {
                     }
                     Spacer(Modifier.height(12.dp))
                     when {
-                        order.status in setOf("APPROVED", "NEW", "PENDING", "RESTAURANT_PENDING") -> Row {
+                        order.status in setOf("APPROVED", "RESTAURANT_PENDING") -> Row {
                             Button(onClick = { db.collection("orders").document(order.id).update("status", "PREPARING") }) { Text("ACCEPT") }
                             Spacer(Modifier.width(8.dp))
                             Button(onClick = { rejectOrder = order }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("REJECT") }
@@ -197,4 +216,10 @@ private fun fallbackPayout(order: RestaurantOrderUi): Double {
     }, shape = MaterialTheme.shapes.small) {
         Text(label, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
     }
+}
+private fun formatOrderDate(timestamp: Long): String {
+    return SimpleDateFormat(
+        "dd MMM, hh:mm a",
+        Locale.ENGLISH
+    ).format(Date(timestamp))
 }

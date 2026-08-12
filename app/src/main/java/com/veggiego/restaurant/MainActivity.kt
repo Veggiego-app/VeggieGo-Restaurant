@@ -10,6 +10,14 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessaging
+import android.Manifest
+import android.app.NotificationManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.PowerManager
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -42,7 +50,7 @@ class MainActivity : ComponentActivity() {
             }
 
             var permissionsCompleted by remember {
-                mutableStateOf(false)
+                mutableStateOf(areAllRequiredPermissionsGranted(this))
             }
 
             when {
@@ -158,4 +166,32 @@ class MainActivity : ComponentActivity() {
                 Log.e("FCM", "Unable to get FCM token", error)
             }
     }
+}
+private fun areAllRequiredPermissionsGranted(context: Context): Boolean {
+
+    val notificationGranted =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else true
+
+    val notificationsEnabled =
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
+
+    val fullScreenGranted =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            context.getSystemService(NotificationManager::class.java)
+                .canUseFullScreenIntent()
+        } else true
+
+    val batteryGranted =
+        (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .isIgnoringBatteryOptimizations(context.packageName)
+
+    return notificationGranted &&
+            notificationsEnabled &&
+            fullScreenGranted &&
+            batteryGranted
 }

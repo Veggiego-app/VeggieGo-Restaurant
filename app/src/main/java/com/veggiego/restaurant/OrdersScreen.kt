@@ -20,8 +20,10 @@ fun OrdersScreen(modifier: Modifier = Modifier, initialTab: Int = 0) {
             if (value == null) return@addSnapshotListener
             val docs = value.documents.filter { it.getString("restaurantId") == RestaurantSession.restaurantId }
             counts = mapOf(
-                "ALL" to docs.size,
-                "NEW" to docs.count { it.getString("status") in setOf("APPROVED", "NEW", "PENDING", "RESTAURANT_PENDING") },
+                "ALL" to docs.count {
+                    it.getString("status") !in setOf("PENDING", "NEW")
+                },
+                "NEW" to docs.count { it.getString("status") in setOf("APPROVED", "RESTAURANT_PENDING") },
                 "PREPARING" to docs.count { it.getString("status") in setOf("ACCEPTED", "PREPARING") },
                 "READY" to docs.count { it.getString("status") in setOf("READY_FOR_PICKUP", "RIDER_ASSIGNED") },
                 "ON_THE_WAY" to docs.count { it.getString("status") in setOf("PICKED_UP", "OUT_FOR_DELIVERY") },

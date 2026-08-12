@@ -52,19 +52,48 @@ fun HomeScreen(
                     if (doc.getString("restaurantId") != RestaurantSession.restaurantId) return@forEach
                     val status = doc.getString("status").orEmpty()
                     val timestamp = (doc.get("timestamp") as? Number)?.toLong() ?: 0L
-                    mutableCounts["ALL"] = (mutableCounts["ALL"] ?: 0) + 1
-                    when (status) {
-                        "APPROVED", "NEW", "PENDING", "RESTAURANT_PENDING" -> mutableCounts["NEW"] = (mutableCounts["NEW"] ?: 0) + 1
-                        "ACCEPTED", "PREPARING" -> mutableCounts["PREPARING"] = (mutableCounts["PREPARING"] ?: 0) + 1
-                        "READY_FOR_PICKUP", "RIDER_ASSIGNED" -> mutableCounts["READY"] = (mutableCounts["READY"] ?: 0) + 1
-                        "PICKED_UP", "OUT_FOR_DELIVERY" -> mutableCounts["ON_THE_WAY"] = (mutableCounts["ON_THE_WAY"] ?: 0) + 1
-                        "DELIVERED" -> mutableCounts["COMPLETED"] = (mutableCounts["COMPLETED"] ?: 0) + 1
-                        "CANCELLED", "REJECTED" -> mutableCounts["CANCELLED"] = (mutableCounts["CANCELLED"] ?: 0) + 1
+
+                    val isVisibleToRestaurant = status !in setOf(
+                        "PENDING",
+                        "NEW"
+                    )
+
+                    if (!isVisibleToRestaurant) {
+                        return@forEach
                     }
+
+                    mutableCounts["ALL"] = (mutableCounts["ALL"] ?: 0) + 1
+
+                    when (status) {
+                        "APPROVED", "RESTAURANT_PENDING" ->
+                            mutableCounts["NEW"] = (mutableCounts["NEW"] ?: 0) + 1
+
+                        "ACCEPTED", "PREPARING" ->
+                            mutableCounts["PREPARING"] = (mutableCounts["PREPARING"] ?: 0) + 1
+
+                        "READY_FOR_PICKUP", "RIDER_ASSIGNED" ->
+                            mutableCounts["READY"] = (mutableCounts["READY"] ?: 0) + 1
+
+                        "PICKED_UP", "OUT_FOR_DELIVERY" ->
+                            mutableCounts["ON_THE_WAY"] = (mutableCounts["ON_THE_WAY"] ?: 0) + 1
+
+                        "DELIVERED" ->
+                            mutableCounts["COMPLETED"] = (mutableCounts["COMPLETED"] ?: 0) + 1
+
+                        "CANCELLED", "REJECTED" ->
+                            mutableCounts["CANCELLED"] = (mutableCounts["CANCELLED"] ?: 0) + 1
+                    }
+
                     if (timestamp in start until end) {
                         todayCount++
+
                         if (status == "DELIVERED") {
-                            sales += readDouble(doc.data, "restaurantPayout", "restaurantAmount", "payout").takeIf { it > 0 }
+                            sales += readDouble(
+                                doc.data,
+                                "restaurantPayout",
+                                "restaurantAmount",
+                                "payout"
+                            ).takeIf { it > 0 }
                                 ?: ((doc.get("itemTotal") as? Number)?.toDouble() ?: 0.0)
                         }
                     }
